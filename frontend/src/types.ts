@@ -281,6 +281,38 @@ export interface SkillsListResponse {
   skills: SkillEntry[];
 }
 
+export interface ClaudeCodeSettingsFile {
+  name: string;
+  path: string;
+  exists: boolean;
+  values: Record<string, unknown>;
+}
+
+export interface ClaudeCodePluginInstalled {
+  id: string;
+  scope: string;
+  version: string;
+  installedAt: string;
+  installPath: string;
+}
+
+export interface ClaudeCodePlugins {
+  installed: ClaudeCodePluginInstalled[];
+  marketplaces: string[];
+  enabled: Record<string, boolean>;
+}
+
+export interface ClaudeCodeMcp {
+  configured: unknown[];
+  note?: string;
+  pendingAuth?: string[];
+}
+
+export interface ClaudeCodeHooks {
+  present: boolean;
+  files: string[];
+}
+
 export interface ClaudeCodeState {
   id: string;
   label: string;
@@ -291,4 +323,9 @@ export interface ClaudeCodeState {
   projectDir: string;
   skillsCount: number;
   skillsRoots: SkillRoot[];
+  settingsFiles?: ClaudeCodeSettingsFile[];
+  editableKeys?: string[];
+  plugins?: ClaudeCodePlugins;
+  mcp?: ClaudeCodeMcp;
+  hooks?: ClaudeCodeHooks;
 }

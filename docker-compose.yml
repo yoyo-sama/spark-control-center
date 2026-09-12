@@ -11,6 +11,9 @@ services:
       - /home/sparks/comfyui-spark:/home/sparks/comfyui-spark
       - /home/sparks/.config/opencode:/home/sparks/.config/opencode
       - /home/sparks/.claude:/home/sparks/.claude
+      # Fichier unique, lecture seule : on n'y lit que les mcpServers (global + par projet),
+      # le reste est l'historique des projets et ne sort jamais de l'API.
+      - /home/sparks/.claude.json:/home/sparks/.claude.json:ro
       - /home/sparks/.agents:/home/sparks/.agents
       # ~/.claude/skills/watch est un lien vers ce répertoire : sans ce montage
       # le lien est cassé dans le conteneur et la skill disparaît de la liste.

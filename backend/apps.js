@@ -4,6 +4,7 @@
 // are textual replacements of a single located line.
 const express = require('express');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const Docker = require('dockerode');
@@ -11,12 +12,17 @@ const Docker = require('dockerode');
 const router = express.Router();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
-const SECRET_KEY_RE = /TOKEN|KEY|SECRET|PASSWORD/i;
+const SECRET_KEY_RE = /TOKEN|KEY|SECRET|PASSWORD|AUTH/i;
 
 // Single masking point: used by the API responses AND by the facts feeding rules.js.
+// Recursive: settingsglm.json hides a real ANTHROPIC_AUTH_TOKEN one level down, in `env`.
 function mask(env) {
   const out = {};
-  for (const [k, v] of Object.entries(env)) out[k] = SECRET_KEY_RE.test(k) ? '***' : v;
+  for (const [k, v] of Object.entries(env)) {
+    if (SECRET_KEY_RE.test(k)) out[k] = '***';
+    else if (v && typeof v === 'object' && !Array.isArray(v)) out[k] = mask(v);
+    else out[k] = v;
+  }
   return out;
 }
 
@@ -516,11 +522,130 @@ function detectClaudeCode() {
     : { detected: false, reason: `${claudeDir()} not found` };
 }
 
+// ~/.claude.json is 63 KB of project history: only its mcpServers are ever read out of it.
+// Derived from CLAUDE_DIR, never from os.homedir(): inside the container homedir is /root,
+// where the file does not exist — the MCP list would then be silently empty forever.
+function claudeJsonFile() {
+  return process.env.CLAUDE_JSON || path.join(path.dirname(claudeDir()), '.claude.json');
+}
+
+// null for absent / unparsable — a broken settings file must never 500 the whole app.
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+const SETTINGS_FILES = ['settings.json', 'settings.local.json', 'settingsglm.json'];
+
+// Everything else in these files (permissions, hooks, enabledPlugins, extraKnownMarketplaces)
+// is read-only by design: this app has no authentication, see previewClaudeCode.
+const EDITABLE_KEYS = ['model', 'theme', 'effortLevel', 'inputNeededNotifEnabled', 'agentPushNotifEnabled'];
+
+function claudeSettingsFiles() {
+  return SETTINGS_FILES.map((name) => {
+    const p = path.join(claudeDir(), name);
+    return { name, path: p, exists: fs.existsSync(p), values: mask(readJson(p) || {}) };
+  });
+}
+
+function claudeMcp() {
+  const data = readJson(claudeJsonFile());
+  const configured = [];
+  const add = (name, cfg, extra) =>
+    configured.push({ name, type: cfg.type || 'stdio', maskedConfig: mask(cfg), ...extra });
+  for (const [name, cfg] of Object.entries((data && data.mcpServers) || {})) add(name, cfg, { scope: 'global' });
+  for (const [project, p] of Object.entries((data && data.projects) || {})) {
+    for (const [name, cfg] of Object.entries((p && p.mcpServers) || {})) add(name, cfg, { scope: 'project', project });
+  }
+  return {
+    configured,
+    note: configured.length ? null : `No MCP server is declared in ${claudeJsonFile()}, globally or per project.`,
+    pendingAuth: Object.keys(readJson(path.join(claudeDir(), 'mcp-needs-auth-cache.json')) || {}),
+  };
+}
+
+function claudePlugins(files) {
+  const installedRaw = readJson(path.join(claudeDir(), 'plugins', 'installed_plugins.json')) || {};
+  return {
+    installed: Object.entries(installedRaw.plugins || {}).flatMap(([id, entries]) =>
+      (entries || []).map((e) => ({ id, scope: e.scope, version: e.version, installedAt: e.installedAt, installPath: e.installPath }))
+    ),
+    marketplaces: Object.keys(readJson(path.join(claudeDir(), 'plugins', 'known_marketplaces.json')) || {}),
+    enabled: Object.assign({}, ...files.map((f) => f.values.enabledPlugins || {})),
+  };
+}
+
 async function readClaudeCode() {
   // Lazy require: skills.js pulls the write primitives from this module.
   const { scanSkills } = require('./skills');
   const { roots, skills } = scanSkills();
-  return { projectDir: claudeDir(), skillsCount: skills.length, skillsRoots: roots };
+  const files = claudeSettingsFiles();
+  const hookFiles = files.filter((f) => 'hooks' in f.values).map((f) => f.name);
+  return {
+    projectDir: claudeDir(),
+    skillsCount: skills.length,
+    skillsRoots: roots,
+    settingsFiles: files,
+    editableKeys: EDITABLE_KEYS,
+    plugins: claudePlugins(files),
+    mcp: claudeMcp(),
+    hooks: { present: hookFiles.length > 0, files: hookFiles },
+  };
+}
+
+const CLAUDE_RESTART = {
+  kind: 'none',
+  containerName: null,
+  command: null,
+  cwd: null,
+  cost: 'Claude Code reads its settings at startup: restart it for the change to take effect.',
+};
+
+// Strict whitelist: the body of this preview IS the trust boundary. permissions/hooks/
+// enabledPlugins/extraKnownMarketplaces decide what Claude Code may execute, and this app
+// has no authentication — they stay read-only on purpose, do not "complete" them.
+function previewClaudeCode(body) {
+  if (!body || body.target !== 'setting') return { error: 'target must be "setting"' };
+  const key = body.key;
+  if (!EDITABLE_KEYS.includes(key)) {
+    return {
+      error:
+        `${key} is not editable from here. permissions, hooks, enabledPlugins and extraKnownMarketplaces ` +
+        'are shown read-only on purpose: this app has no authentication, and writing them would silently ' +
+        'widen what Claude Code may execute.',
+    };
+  }
+  const value = body.value;
+  if (key.endsWith('NotifEnabled')) {
+    if (typeof value !== 'boolean') return { error: `${key} must be a boolean` };
+  } else if (typeof value !== 'string' || !value.trim() || value.length > 100) {
+    return { error: `${key} must be a non-empty string of at most 100 characters` };
+  }
+
+  const file = path.join(claudeDir(), 'settings.json');
+  if (!fs.existsSync(file)) return { error: `${file} not found` };
+  const content = fs.readFileSync(file, 'utf8');
+  if (hasJsonComments(content)) {
+    return { error: `${file} looks like JSONC (contains // or /*): refusing a JSON.parse/stringify round-trip that would destroy comments` };
+  }
+  const config = JSON.parse(content);
+  config[key] = value;
+  const newContent = JSON.stringify(config, null, 2) + '\n';
+
+  return {
+    response: {
+      token: crypto.randomUUID(),
+      file,
+      summary: `${key} set to ${JSON.stringify(value)}`,
+      diff: buildLineDiff(content.split('\n'), newContent.split('\n')),
+      warnings: [],
+      restart: { ...CLAUDE_RESTART },
+    },
+    plan: { target: 'claude-settings', file, hash: sha(content), content: newContent },
+  };
 }
 
 // ---------- registry ----------
@@ -562,8 +687,7 @@ const APPS = [
     containerName: null,
     detect: detectClaudeCode,
     read: readClaudeCode,
-    // settings.json editing is out of scope for now; skills have their own router.
-    preview: () => ({ error: 'Use /api/skills for skills' }),
+    preview: previewClaudeCode,
     apply: applyPlan,
     facts: async () => null,
   },
