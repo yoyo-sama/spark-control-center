@@ -46,11 +46,15 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function readDesired() {
+// Stored = exactly what the user has set (persisted verbatim to state.json).
+// Desired = stored merged onto defaults, only for display/API-contract purposes —
+// never written to disk, so apply.py's `if "<key>" in state` never sees a key
+// the user didn't actually configure.
+function readStored() {
   try {
     return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
   } catch {
-    return { ...DEFAULT_DESIRED };
+    return {};
   }
 }
 
@@ -171,10 +175,12 @@ function computeKeyStatus(key, desired, actual, lastApply) {
   return { state: 'ok', message: '' };
 }
 
-function computeStatus(desired, actual, lastApply) {
+function computeStatus(stored, desired, actual, lastApply) {
   const status = {};
   for (const key of KEYS) {
-    if (!lastApply) {
+    if (!(key in stored)) {
+      status[key] = { state: 'unset', message: 'Not configured — this setting is not managed yet' };
+    } else if (!lastApply) {
       status[key] = { state: 'pending', message: 'Pipeline not installed' };
     } else if (lastApply.stateUpdatedAt !== desired.updatedAt) {
       status[key] = { state: 'pending', message: 'Change not applied yet' };
@@ -206,13 +212,14 @@ async function getEnvAdvice() {
   return { recommended, banned };
 }
 
-async function buildFullState(desired) {
+async function buildFullState(stored) {
+  const desired = { ...DEFAULT_DESIRED, ...stored };
   const actual = readActual();
   const lastApply = readLastApply();
   return {
     desired,
     actual,
-    status: computeStatus(desired, actual, lastApply),
+    status: computeStatus(stored, desired, actual, lastApply),
     lastApply,
     pipelineInstalled: lastApply !== null,
     envAdvice: await getEnvAdvice(),
@@ -220,7 +227,7 @@ async function buildFullState(desired) {
 }
 
 router.get('/state', async (req, res) => {
-  res.json(await buildFullState(readDesired()));
+  res.json(await buildFullState(readStored()));
 });
 
 router.put('/state', async (req, res) => {
@@ -239,15 +246,15 @@ router.put('/state', async (req, res) => {
       });
     }
   }
-  const desired = { ...readDesired(), ...body, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(STATE_FILE, JSON.stringify(desired, null, 2));
-  res.json(await buildFullState(desired));
+  const stored = { version: 1, ...readStored(), ...body, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(STATE_FILE, JSON.stringify(stored, null, 2));
+  res.json(await buildFullState(stored));
 });
 
 router.post('/reapply', async (req, res) => {
-  const desired = { ...readDesired(), updatedAt: new Date().toISOString() };
-  fs.writeFileSync(STATE_FILE, JSON.stringify(desired, null, 2));
-  res.json(await buildFullState(desired));
+  const stored = { version: 1, ...readStored(), updatedAt: new Date().toISOString() };
+  fs.writeFileSync(STATE_FILE, JSON.stringify(stored, null, 2));
+  res.json(await buildFullState(stored));
 });
 
 module.exports = router;

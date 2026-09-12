@@ -13,6 +13,7 @@ const STATE_BADGE: Record<Gb10Status['state'], { label: string; className: strin
   skipped: { label: 'Skipped', className: 'bg-hover text-muted' },
   diverged: { label: 'Diverged', className: 'bg-orange-500/10 text-orange-600 dark:text-orange-400' },
   unverified: { label: 'Unverified', className: 'bg-hover text-muted' },
+  unset: { label: 'Not configured', className: 'bg-hover text-muted' },
 };
 
 function fmtBytes(bytes: number | null): string {
@@ -337,6 +338,12 @@ export default function Gb10() {
                 }
               />
               <Row label="Actual" value={fmtBool(state.actual.gpuPersistenceMode)} />
+              <p className="mt-3 pt-3 border-t border-line text-xs text-muted leading-relaxed">
+                Keeps the NVIDIA driver loaded between CUDA jobs instead of unloading it as soon as no
+                process is using the GPU. Removes driver re-init latency at the start of every job and
+                makes clock settings more stable over time. No meaningful downside. Already active on this
+                machine.
+              </p>
             </SettingCard>
 
             <SettingCard title="Swap" badge={<Badge status={state.status.swapDisabled} />}>
@@ -355,6 +362,13 @@ export default function Gb10() {
                 }
               />
               <Row label="Actual swap" value={`${fmtBytes(state.actual.swapUsedBytes)} / ${fmtBytes(state.actual.swapTotalBytes)}`} />
+              <p className="mt-3 pt-3 border-t border-line text-xs text-muted leading-relaxed">
+                On a unified-memory architecture (the 128 GB is shared between CPU and GPU), swap is
+                actively harmful — under memory pressure the machine can silently hang instead of cleanly
+                killing the offending process. Disabling it forces a clean, diagnosable OOM kill instead.
+                Safeguard: disabling is refused if more than 512 MiB of swap is actually in use, since a
+                swapoff in that state can trigger an immediate OOM kill.
+              </p>
               <div className="mt-3 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
                 <label className="text-sm text-muted" htmlFor="vm-swappiness">
                   vm.swappiness
@@ -379,6 +393,11 @@ export default function Gb10() {
                 <span className="text-xs text-muted ml-auto">Actual: {fmtNum(state.actual.vmSwappiness)}</span>
                 <Badge status={state.status.vmSwappiness} />
               </div>
+              <p className="mt-3 pt-3 border-t border-line text-xs text-muted leading-relaxed">
+                Controls how eagerly the kernel evicts pages to swap (0 = avoids it as much as possible,
+                100 = very aggressive, system default 60). Lowering it to 10 keeps pages in RAM; it is the
+                gentler alternative to disabling swap entirely, recommended by the same NVIDIA source.
+              </p>
               {applyError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{applyError}</p>}
             </SettingCard>
 
@@ -396,7 +415,10 @@ export default function Gb10() {
               />
               <Row label="Actual" value={fmtBool(state.actual.thermalMonitor)} />
               <p className="mt-3 pt-3 border-t border-line text-xs text-muted leading-relaxed">
-                Controls the existing script at{' '}
+                Logs GPU temperature, power draw and clock speed, along with RAM and swap, every 5 seconds
+                to a log file. Purely diagnostic, no effect on performance — useful because the machine
+                produces almost no usable error output when it freezes, so this log is often the only
+                post-mortem trace. Runs the existing script at{' '}
                 <code className="font-mono">/home/sparks/comfyui-spark/thermal-monitor.sh</code>.
               </p>
             </SettingCard>

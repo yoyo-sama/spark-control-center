@@ -69,3 +69,35 @@ a été installée entre-temps : `sudo systemctl disable --now gb10-tuning.path 
 Ollama, vLLM), fiches de recommandation par application, diagnostic automatique des pièges connus
 (ex. SageAttention retombant silencieusement sur PyTorch faute de `python3.12-dev`, 20× plus lent),
 moteur de propositions d'optimisation, authentification.
+
+## 2026-09-12 — Correctif post-installation : n'appliquer que ce qui est explicitement réglé + explication de chaque paramètre
+
+Chaîne systemd installée par l'utilisateur et vérifiée fonctionnelle (unités en place, `gb10-tuning.path`
+actif, service exécuté une fois en exit 0, conteneur en `uid=0` capable d'écrire dans `/etc/gb10-tuning`).
+Deux défauts constatés à ce moment-là, tous deux issus de la même racine — les valeurs par défaut étaient
+traitées comme un état désiré déjà enregistré :
+
+1. **Le premier `Apply`, quel que soit le bouton cliqué, écrivait les 5 réglages par défaut** (`PUT` fusionnait
+   le body dans `DEFAULT_DESIRED`). Activer le monitoring thermique aurait donc aussi cappé le GPU à 2100 MHz
+   et fait passer `vm.swappiness` de 60 à 10. Inacceptable sur une surface qui pilote du root : l'interface ne
+   doit faire que ce qu'on lui demande.
+2. **Les badges affichaient `Diverged`** sur des réglages jamais configurés (défaut affiché 2100 vs machine à
+   2418), laissant croire à un échec d'application là où il n'y avait simplement aucun réglage posé.
+
+Correctif (`backend/gb10.js`, `frontend/src/components/Gb10.tsx`, `frontend/src/types.ts`) : séparation de
+l'état STOCKÉ (ce que l'utilisateur a réellement posé) et de l'état AFFICHÉ (stocké fusionné sur les défauts,
+pour remplir les champs). Le `PUT` et le `POST /reapply` fusionnent désormais dans le stocké — vérifié : un
+`PUT {"thermalMonitor":true}` sur une installation vierge n'écrit que `version`, `updatedAt`, `thermalMonitor`,
+et un second `PUT` cumule sans matérialiser le reste. Nouvel état `unset` évalué avant tous les autres, rendu
+en `Not configured`. `apply.py` n'a pas bougé : il ne produisait déjà d'action que pour les clés présentes.
+
+Ajout d'une explication sous chaque carte (persistance GPU, swap, `vm.swappiness`, monitoring thermique) —
+ce que fait le réglage, pourquoi, et sa contrepartie s'il y en a une. La carte « GPU clock cap » et la section
+« Environment variables » avaient déjà la leur.
+
+**Correction faite en vérification** : le remplacement de la note du monitoring thermique avait fait disparaître
+le chemin du script piloté (`/home/sparks/comfyui-spark/thermal-monitor.sh`) ; remis dans le texte.
+
+**État machine après ce lot, inchangé** : `/etc/gb10-tuning` ne contient que `result.json` (aucun réglage posé),
+`vm.swappiness` toujours à 60, horloges toujours 2418/3003 MHz. Les 5 réglages s'affichent en `Not configured`.
+Rien ne sera appliqué tant que l'utilisateur n'aura pas cliqué un `Apply`.

@@ -97,7 +97,7 @@ export type Gb10SettingKey =
   | 'vmSwappiness'
   | 'thermalMonitor';
 
-export type Gb10SettingState = 'ok' | 'pending' | 'failed' | 'skipped' | 'diverged' | 'unverified';
+export type Gb10SettingState = 'ok' | 'pending' | 'failed' | 'skipped' | 'diverged' | 'unverified' | 'unset';
 
 export interface Gb10Status {
   state: Gb10SettingState;
