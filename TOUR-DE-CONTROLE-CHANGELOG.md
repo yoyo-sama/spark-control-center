@@ -101,3 +101,26 @@ le chemin du script piloté (`/home/sparks/comfyui-spark/thermal-monitor.sh`) ; 
 **État machine après ce lot, inchangé** : `/etc/gb10-tuning` ne contient que `result.json` (aucun réglage posé),
 `vm.swappiness` toujours à 60, horloges toujours 2418/3003 MHz. Les 5 réglages s'affichent en `Not configured`.
 Rien ne sera appliqué tant que l'utilisateur n'aura pas cliqué un `Apply`.
+
+## ⏳ TEST EN ATTENTE — validation réelle du plafond d'horloge GPU (posé le 2026-09-12, non joué)
+
+Tout est en place et vérifié **sauf la seule chose qui ne peut l'être qu'en conditions réelles** : est-ce
+que CE GB10 accepte `nvidia-smi -lgc` ? Le fil NVIDIA rapporte des unités où la commande est silencieusement
+ignorée selon le firmware (utilisateur `knitvoger1`), et c'est précisément pour ça que l'UI compare l'état
+désiré à l'état réel.
+
+**Protocole** : dans la rubrique GB10, saisir `2100` dans le champ du plafond d'horloge, cliquer `Apply`,
+puis lire le badge de la carte.
+- Badge `ok` → le firmware accepte, le correctif anti-freeze est actif (et rejoué à chaque boot).
+- Badge `diverged` avec le message « GPU running above the requested cap — this firmware likely ignores -lgc »
+  → le firmware ignore la commande ; il faudra chercher un autre levier (aucune limite de watts n'existe sur
+  GB10, `Power Limit: N/A`).
+- Badge `unverified` (« GPU idle, cap not observable ») → le GPU est au repos, l'horloge ne monte pas assez
+  pour que le plafond soit observable : refaire la lecture pendant une vraie charge GPU.
+
+**Vérification en ligne de commande, en parallèle** :
+`nvidia-smi --query-gpu=clocks.sm,clocks.max.sm --format=csv` puis `cat /etc/gb10-tuning/result.json`.
+
+**Contexte utile au moment du test** : état de départ 2418 MHz applicatif / 3003 MHz max, `vm.swappiness` à 60,
+swap actif, aucun réglage posé (les 5 cartes affichent `Not configured`). Le vrai juge de paix reste une
+génération longue (LTX/vidéo) sans freeze, pas seulement le badge.
