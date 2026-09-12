@@ -9,7 +9,7 @@ import Apps from './components/Apps';
 import DeployModal from './components/DeployModal';
 import DeployLog from './components/DeployLog';
 import ConfirmModal from './components/ConfirmModal';
-import type { Container, View } from './types';
+import type { Container, MachineInfo, View } from './types';
 
 interface DeployForm {
   repo: string;
@@ -32,6 +32,7 @@ function App() {
   const [currentView, setCurrentView] = useState<View>('gb10');
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null);
   const [appTab, setAppTab] = useState<string | undefined>();
+  const [machine, setMachine] = useState<MachineInfo | null>(null);
 
   const fetchContainers = async () => {
     try {
@@ -63,6 +64,17 @@ function App() {
     const interval = setInterval(fetchContainers, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    // ponytail: hardware identity doesn't change at runtime, fetch once, no polling.
+    fetch('/api/machine')
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setMachine)
+      .catch(() => setMachine(null));
+  }, []);
+
+  const machineLabel = machine?.chip?.name ?? machine?.platform?.name ?? 'Machine';
+  const machineSubtitle = machine?.vendor ?? 'local';
 
   const handleAction = async (id: string, action: 'start' | 'stop' | 'restart' | 'delete') => {
     try {
@@ -133,7 +145,7 @@ function App() {
 
   const headerTitle =
     currentView === 'gb10'
-      ? 'GB10'
+      ? machineLabel
       : currentView === 'apps'
         ? 'Apps'
         : currentView === 'dashboard'
@@ -144,7 +156,12 @@ function App() {
 
   return (
     <div className="flex h-screen bg-base text-fg font-sans">
-      <Sidebar currentView={currentView} onViewChange={setCurrentView} />
+      <Sidebar
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        machineLabel={machineLabel}
+        machineSubtitle={machineSubtitle}
+      />
 
       <main className="flex-1 overflow-y-auto flex flex-col">
         <header className="sticky top-0 z-40 h-16 shrink-0 px-6 border-b border-line bg-base/80 backdrop-blur flex justify-between items-center">
@@ -187,6 +204,7 @@ function App() {
                 setAppTab(id);
                 setCurrentView('apps');
               }}
+              machine={machine}
             />
           )}
 

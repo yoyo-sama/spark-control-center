@@ -338,3 +338,57 @@ donc **rien**. La liste vide était juste par accident — un serveur MCP ajout�
 Le lot ne pouvait pas le voir : il avait testé sur l'hôte (où `homedir` vaut `/home/sparks`) et via une
 surcharge `CLAUDE_JSON`. Corrigé en dérivant le chemin de `CLAUDE_DIR`. Prouvé après coup : le fichier est
 bien lu depuis le conteneur (66 clés, 7 projets) et `mcpServers` en est réellement absent.
+
+## 2026-09-12 — Identité machine et portabilité entre déclinaisons du DGX Spark
+
+Objectif : l'application doit s'installer sur d'autres déclinaisons (GB300…) et chez d'autres
+constructeurs (Dell, HP, Asus, Lenovo…). Deux verrous : rien n'identifiait la machine, et « GB10 » était
+codé en dur dans la navigation.
+
+### Sources retenues, toutes vérifiées lisibles depuis le conteneur
+
+| Information | Source |
+|---|---|
+| Marque, modèle, BIOS | `/sys/class/dmi/id/{sys_vendor,product_name,board_vendor,chassis_vendor,bios_*}` |
+| Numéros de série | DMI `product_serial` / `board_serial` (`-r--------` root : lisibles par le conteneur, pas par un shell utilisateur) |
+| Plateforme DGX | `/etc/dgx-release` (`DGX_NAME`, `DGX_PRETTY_NAME`, `DGX_SWBUILD_VERSION`, `DGX_OTA_VERSION`…) |
+| Puce | `nvidia-smi` — `NVIDIA GB10` → `GB10`, `NVIDIA GB300` → `GB300` |
+| MAC | `/host/sys/class/net/*/address`, via un montage de `/sys` |
+| IP | `/proc/1/net/fib_trie`, grâce à `pid: host` |
+
+Écartés après essai : **device tree** (absent sur cette machine malgré l'ARM64, DMI fait foi) ;
+**`/proc/1/root/...`** (EACCES, Docker le bloque) ; **montage du seul `/sys/class/net`** (liste les
+interfaces mais ne peut rien lire dedans, les entrées étant des liens vers `/sys/devices`).
+
+Le conteneur ayant son propre namespace réseau, `/sys/class/net` n'y montre que `eth0`/`lo` : d'où le
+montage de `/sys` entier en lecture seule. Aucun privilège ajouté, pas de `network_mode: host`.
+
+Sur cette machine : Dell Inc. · Dell Pro Max with GB10 FCM1253 · NVIDIA DGX Spark 7.2.3 (OTA 7.5.0) ·
+GB10 · Ubuntu 24.04.4 LTS · aarch64 · `wlP9s9` 192.168.1.26 (défaut) et `enP7s7` down.
+`product_serial` et `DGX_SERIAL_NUMBER` sont vides ; seul `board_serial` porte le numéro de service.
+L'interface dit explicitement « Not exposed by firmware » quand les trois sont absents, plutôt que
+d'afficher un champ vide.
+
+### « GB10 » n'est plus écrit nulle part dans l'interface
+
+L'étiquette de navigation, le sous-titre et le titre d'en-tête dérivent désormais de la puce détectée
+(`chip.name`, repli `platform.name`, repli `Machine`), récupérée **une seule fois** et propagée en prop.
+La clé de vue interne `'gb10'` reste inchangée : c'est un identifiant, pas un libellé.
+
+### Portabilité des chemins
+
+Les 6 chemins `/home/sparks/...` avaient déjà des variables d'environnement côté backend ; seuls le
+`docker-compose.yml` et les valeurs par défaut les figeaient. Introduction de **`SPARK_HOME`**
+(`${SPARK_HOME:-/home/sparks}`), utilisé des DEUX côtés de chaque montage pour que les chemins affichés
+restent les vrais chemins de l'hôte, et posé explicitement dans `environment`. Ajout de `.env.example`.
+Vérifié : sans `.env` le comportement est identique à avant ; avec `SPARK_HOME=/opt/autre`, montages et
+variables suivent.
+
+### Bug trouvé en vérification — troisième de la même famille
+
+L'API rapportait `Ubuntu`… non : elle rapportait **`Debian GNU/Linux 12`**, la distribution de l'IMAGE du
+conteneur, présentée comme celle de la machine — qui tourne sous Ubuntu 24.04.4 LTS. Le noyau, lui, était
+juste, puisqu'il est partagé. Corrigé en montant `/etc/os-release` de l'hôte sous `/host/etc/os-release`
+(avec repli sur `/etc/os-release` pour les exécutions hors Docker). Même racine que les bugs `localhost`
+et `os.homedir()` déjà consignés : du code qui lit à l'intérieur du conteneur ce qu'il prétend lire sur la
+machine.

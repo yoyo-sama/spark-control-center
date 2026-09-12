@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { HardDrive, Loader2, RotateCw, Thermometer, Wind, Zap } from 'lucide-react';
 import StatCard from './StatCard';
 import ConfirmModal from './ConfirmModal';
-import type { Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status } from '../types';
+import MachineCard from './MachineCard';
+import type { Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status, MachineInfo } from '../types';
 import Insights from './Insights';
 
 const API_BASE = '/api';
@@ -114,7 +115,13 @@ const buttonClass =
 const inputClass =
   'h-9 px-2.5 rounded-lg border border-line bg-base text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 disabled:opacity-50 disabled:cursor-not-allowed';
 
-export default function Gb10({ onOpenApp }: { onOpenApp?: (appId: string) => void }) {
+export default function Gb10({
+  onOpenApp,
+  machine,
+}: {
+  onOpenApp?: (appId: string) => void;
+  machine?: MachineInfo | null;
+}) {
   const [state, setState] = useState<Gb10State | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -216,6 +223,8 @@ export default function Gb10({ onOpenApp }: { onOpenApp?: (appId: string) => voi
               installed (see README).
             </div>
           )}
+
+          <MachineCard machine={machine ?? null} />
 
           <Insights onOpenApp={onOpenApp} />
 

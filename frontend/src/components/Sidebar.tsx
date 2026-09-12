@@ -5,9 +5,11 @@ import type { View } from '../types';
 interface Props {
   currentView: View;
   onViewChange: (view: View) => void;
+  machineLabel: string;
+  machineSubtitle: string;
 }
 
-export default function Sidebar({ currentView, onViewChange }: Props) {
+export default function Sidebar({ currentView, onViewChange, machineLabel, machineSubtitle }: Props) {
   const { isDark, toggle } = useTheme();
 
   return (
@@ -18,7 +20,9 @@ export default function Sidebar({ currentView, onViewChange }: Props) {
         </div>
         <div className="min-w-0">
           <h1 className="text-sm font-semibold tracking-tight leading-tight">Spark Control Center</h1>
-          <p className="text-[11px] text-muted leading-tight">GB10 local</p>
+          <p className="text-[11px] text-muted leading-tight">
+            {machineLabel} {machineSubtitle}
+          </p>
         </div>
       </div>
 
@@ -32,7 +36,7 @@ export default function Sidebar({ currentView, onViewChange }: Props) {
           }`}
         >
           <Cpu size={16} strokeWidth={2} />
-          GB10
+          {machineLabel}
         </button>
         <button
           onClick={() => onViewChange('apps')}

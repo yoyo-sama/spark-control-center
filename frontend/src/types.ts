@@ -313,6 +313,45 @@ export interface ClaudeCodeHooks {
   files: string[];
 }
 
+export interface MachineGpu {
+  index: number;
+  name: string;
+  uuid: string | null;
+  serial: string | null;
+  vbios: string | null;
+  memoryTotalMb: number | null;
+}
+
+export interface MachineNetworkInterface {
+  name: string;
+  mac: string | null;
+  state: string;
+  addresses: string[];
+  isDefault: boolean;
+}
+
+export interface MachineInfo {
+  vendor: string | null;
+  model: string | null;
+  boardVendor: string | null;
+  chassisVendor: string | null;
+  bios: { vendor: string | null; version: string | null } | null;
+  serials: { product: string | null; board: string | null; dgx: string | null };
+  platform: {
+    name: string | null;
+    prettyName: string | null;
+    swBuild: string | null;
+    otaVersion: string | null;
+    otaDate: string | null;
+    commit: string | null;
+    platform: string | null;
+  } | null;
+  chip: { name: string; gpus: MachineGpu[] } | null;
+  os: { arch: string | null; kernel: string | null; distro: string | null } | null;
+  network: { defaultInterface: string | null; interfaces: MachineNetworkInterface[] } | null;
+  sources: { dmi: boolean; dgxRelease: boolean; hostSys: boolean; gpu: boolean };
+}
+
 export interface ClaudeCodeState {
   id: string;
   label: string;
