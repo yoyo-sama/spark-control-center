@@ -74,4 +74,17 @@ module.exports = [
       (f.opencode.declared.some((d) => !f.opencode.installed.includes(d)) ||
         f.opencode.installed.some((i) => !f.opencode.declared.includes(i))),
   },
+  {
+    id: 'system-updates-pending',
+    // severity/why depend on the actual counts, unlike every rule above — resolved
+    // against facts by insights.js (typeof === 'function' check), nothing fancier.
+    severity: (f) => (f.updates.security > 0 ? 'high' : 'medium'),
+    target: 'host',
+    title: 'System updates pending',
+    why: (f) =>
+      `${f.updates.total} update(s) available, ${f.updates.security} of them security updates. ` +
+      'Install via the DGX Dashboard or apt on the host — not from this console.',
+    action: null,
+    detect: (f) => !!f.updates && (f.updates.total > 0 || f.updates.security > 0),
+  },
 ];

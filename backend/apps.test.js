@@ -103,7 +103,7 @@ test('facts feed the host/comfy rules and nothing else', async () => {
   // that is what proves they are gated on their own facts and not always-on.
   const f = { gpuClockCapSet: false, vmSwappiness: 60, comfyui: await comfy.facts(), opencode: null };
   const rules = require('./rules');
-  assert.strictEqual(rules.length, 5);
+  assert.strictEqual(rules.length, 6);
   assert.ok(!JSON.stringify(rules.map((r) => [r.title, r.why])).match(/CUDA_CACHE_MAXSIZE|NCCL_P2P_DISABLE/));
   // 20 was just enabled by the previous test, so the attention rule needs the pytorch flag restored
   f.comfyui.flags = ['--use-pytorch-cross-attention'];

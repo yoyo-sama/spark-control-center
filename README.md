@@ -173,6 +173,42 @@ Some GB10 units ignore `nvidia-smi -lgc` depending on their firmware — the UI 
 
 This environment variable overrides the state directory (both for the backend and the script), which allows testing without touching `/etc`.
 
+## System updates
+
+### The principle
+
+The DGX Dashboard's `/api/v1/updates/*` endpoints require its own auth and only listen on `127.0.0.1`, unreachable from this container — so the console reads the real source instead: apt, via the files the host already maintains.
+
+The flow is **one-way, host → app**: `dgx-updates.timer` runs hourly on the host and writes `/var/lib/spark-control-center/updates.json`, which this app only reads. Unlike the `gb10-tuning` pipeline, nothing the app writes ever triggers a host command, so no allow-list is needed here.
+
+- Update counts (`85 updates`, `14 security`) come straight from `/var/lib/update-notifier/updates-available`, refreshed by the system's own `apt-daily.timer`.
+- The per-package list (name/current/candidate) comes from `updates.json`, refreshed by `dgx-updates.timer` below.
+- Installing updates still happens via the DGX Dashboard or `apt` on the host — not from this console.
+
+### Install
+
+```bash
+sudo install -m 755 host/dgx-updates/dgx-updates.sh /usr/local/sbin/dgx-updates.sh
+sudo install -m 644 host/dgx-updates/dgx-updates.service \
+                    host/dgx-updates/dgx-updates.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dgx-updates.timer
+```
+
+### Uninstall
+
+```bash
+sudo systemctl disable --now dgx-updates.timer
+sudo rm /usr/local/sbin/dgx-updates.sh /etc/systemd/system/dgx-updates.service /etc/systemd/system/dgx-updates.timer
+```
+
+### Environment variables
+
+- `UPDATES_OUT` (script): overrides the JSON output path, for testing without touching `/var/lib`.
+- `UPDATE_NOTIFIER_FILE`, `APT_STAMP_FILE`, `UPDATES_JSON` (backend): override the three input paths, for testing.
+
+Without the timer installed, `/api/updates` still returns 200 with `pipelineInstalled: false` and a `note` explaining the package list is absent — the summary counts (which don't depend on the timer) are unaffected.
+
 ## Structure
 
 ```

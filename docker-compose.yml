@@ -29,6 +29,11 @@ services:
       - /etc/dgx-release:/etc/dgx-release:ro
       # Sans lui, l'app rapporterait la distribution de SON image (Debian) au lieu de celle de la machine.
       - /etc/os-release:/host/etc/os-release:ro
+      # Mises à jour système : source de vérité = apt côté hôte, jamais le DGX Dashboard.
+      # Lecture seule : le flux ne va que de la machine vers l'app (voir host/dgx-updates/README).
+      - /var/lib/update-notifier:/var/lib/update-notifier:ro
+      - /var/lib/spark-control-center:/var/lib/spark-control-center:ro
+      - /var/lib/apt/periodic:/var/lib/apt/periodic:ro
     extra_hosts:
       # ollama-api publie 11434 sur l'hôte et vit sur un autre réseau docker :
       # depuis ce conteneur, localhost ne l'atteint pas, la passerelle hôte si.

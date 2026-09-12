@@ -3,6 +3,7 @@ import { HardDrive, Loader2, RotateCw, Thermometer, Wind, Zap } from 'lucide-rea
 import StatCard from './StatCard';
 import ConfirmModal from './ConfirmModal';
 import MachineCard from './MachineCard';
+import UpdatesCard from './UpdatesCard';
 import type { Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status, MachineInfo } from '../types';
 import Insights from './Insights';
 
@@ -225,6 +226,8 @@ export default function Gb10({
           )}
 
           <MachineCard machine={machine ?? null} />
+
+          <UpdatesCard />
 
           <Insights onOpenApp={onOpenApp} />
 

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { APPS } = require('./apps');
 const RULES = require('./rules');
+const { readSummary } = require('./updates');
 
 const router = express.Router();
 const STATE_FILE = path.join(process.env.GB10_STATE_DIR || '/etc/gb10-tuning', 'state.json');
@@ -27,8 +28,13 @@ function vmSwappiness() {
   }
 }
 
+function updatesFacts() {
+  const summary = readSummary();
+  return summary ? { total: summary.total, security: summary.security } : null;
+}
+
 async function collectFacts() {
-  const facts = { gpuClockCapSet: gpuClockCapSet(), vmSwappiness: vmSwappiness() };
+  const facts = { gpuClockCapSet: gpuClockCapSet(), vmSwappiness: vmSwappiness(), updates: updatesFacts() };
   for (const app of APPS) facts[app.id] = await app.facts();
   return facts;
 }
@@ -38,7 +44,9 @@ router.get('/', async (req, res) => {
   const insights = RULES.filter((r) => r.detect(facts))
     .map(({ id, severity, target, title, why, action }) => {
       const app = APPS.find((a) => a.id === target);
-      return { id, severity, target, title, why, action: !app || app.hidden ? null : action };
+      const resolvedSeverity = typeof severity === 'function' ? severity(facts) : severity;
+      const resolvedWhy = typeof why === 'function' ? why(facts) : why;
+      return { id, severity: resolvedSeverity, target, title, why: resolvedWhy, action: !app || app.hidden ? null : action };
     })
     .sort((a, b) => ORDER[a.severity] - ORDER[b.severity]);
   res.json({ insights });

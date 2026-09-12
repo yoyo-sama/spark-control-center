@@ -18,6 +18,7 @@ const { router: appsRouter } = require('./apps');
 const { router: insightsRouter } = require('./insights');
 const { router: skillsRouter } = require('./skills');
 const { router: machineRouter } = require('./machine');
+const { router: updatesRouter } = require('./updates');
 
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -458,6 +459,7 @@ app.use('/api/apps', appsRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/skills', skillsRouter);
 app.use('/api/machine', machineRouter);
+app.use('/api/updates', updatesRouter);
 
 // JSON 404 for unknown API routes
 app.use('/api', (req, res) => {

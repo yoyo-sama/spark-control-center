@@ -1,0 +1,9 @@
+[Unit]
+Description=Snapshot apt upgradable packages for Spark Control Center
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dgx-updates.sh
+
+[Install]
+WantedBy=multi-user.target

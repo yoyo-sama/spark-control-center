@@ -392,3 +392,61 @@ juste, puisqu'il est partagé. Corrigé en montant `/etc/os-release` de l'hôte 
 (avec repli sur `/etc/os-release` pour les exécutions hors Docker). Même racine que les bugs `localhost`
 et `os.homedir()` déjà consignés : du code qui lit à l'intérieur du conteneur ce qu'il prétend lire sur la
 machine.
+
+## 2026-09-12 — Mises à jour système affichées dans la console, sans passer par le DGX Dashboard
+
+Question posée : peut-on afficher dans la console les mises à jour que montre le DGX Dashboard (port 11000) ?
+
+### Pourquoi PAS l'API du dashboard — trois obstacles mesurés
+
+Le service est `/opt/nvidia/dgx-dashboard-service/dashboard-service -port 11000 serve`
+(`dgx-dashboard.service`), version d'API `0.29.2-2`, préfixe `v1`. Les endpoints existent bel et bien —
+extraits du bundle `updates-BUsASj7K.js` : `/api/v1/updates/available`, `/api/v1/updates/list`,
+`/api/v1/ota/status`. Mais :
+1. **Authentification** : `/updates/available` et `/updates/list` renvoient **401**, le dashboard a une page
+   de connexion. Le seul endpoint ouvert, `/api/v1/ota/status`, ne renvoie que `{"isTorn": false}` — aucune
+   information de contenu.
+2. **Écoute limitée à `127.0.0.1`** : le conteneur reçoit `ECONNREFUSED` (vérifié). Il faudrait passer en
+   réseau hôte ou monter un relais.
+3. **API interne non documentée** (`gitlab-master.nvidia.com/digits-dx/...`), qui changera sans préavis.
+Stocker les identifiants du dashboard dans une application sans authentification disposant de `docker.sock`
+aurait été un très mauvais échange — écarté.
+
+### La source réelle est apt, et elle est ouverte
+
+Le dashboard ne fait que présenter apt. Dépôts DGX/NVIDIA configurés (`dgx.sources`, `cuda-compute-repo`,
+`nvhpc`…), 77 paquets mettables à jour dont le noyau `6.17.0-1032.32 → 7.0.0-1019.19~24.04.2`.
+Et le système calcule déjà le résumé : `/var/lib/update-notifier/updates-available` (world-readable,
+entretenu par `apt-daily.timer` et `update-notifier-download.timer`), plus la date du dernier `apt update`
+réussi via le mtime de `/var/lib/apt/periodic/update-success-stamp`.
+
+### Livré
+
+- `GET /api/updates` : résumé (85 mises à jour dont 14 de sécurité, ESM activé, date du dernier contrôle)
+  lu directement des fichiers système, et liste détaillée des paquets lue depuis
+  `/var/lib/spark-control-center/updates.json`.
+- `host/dgx-updates/` : script + `.service` + `.timer` (horaire, plus au démarrage) qui capture
+  `apt list --upgradable` en JSON. **Le script ne lance jamais `apt-get update` ni `apt upgrade`** — la
+  machine a déjà ses propres minuteries pour ça ; écriture atomique, `0644`. Non installé : la commande est
+  documentée dans les deux README, et l'API le dit (`pipelineInstalled:false` + une note explicite plutôt
+  qu'une liste vide silencieuse).
+- Règle `system-updates-pending` : **high** s'il existe des mises à jour de sécurité, **medium** sinon.
+  C'est la première règle dont la gravité dépend des faits : `severity`/`why` peuvent être des fonctions,
+  résolues par un simple `typeof === 'function'` dans `insights.js`.
+- Carte « System updates » en lecture seule, liste tronquée à 10 avec dépliage.
+
+### Sens du flux — différence importante avec le pipeline gb10-tuning
+
+Ici le flux va **uniquement de la machine vers l'application** : une minuterie écrit un JSON, l'app le lit.
+Rien de ce que l'app écrit ne déclenche de commande. Il n'y a donc **aucune frontière de confiance à
+défendre et aucune liste blanche nécessaire** — consigne explicite donnée au lot pour qu'il n'en invente
+pas une par mimétisme du pipeline GPU.
+
+**Aucun bouton d'installation**, décision de l'utilisateur : l'installation reste au DGX Dashboard ou à
+apt, et l'interface le dit (« this console only reports »).
+
+### Écart de comptage assumé
+
+Le système annonce 85, `apt list --upgradable` en liste 77 : update-notifier compte aussi les mises à jour
+ESM et échelonnées. Les deux chiffres sont affichés, avec une phrase qui explique l'écart plutôt que d'en
+choisir un arbitrairement.

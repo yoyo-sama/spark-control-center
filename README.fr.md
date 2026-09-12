@@ -173,6 +173,42 @@ Certaines unités GB10 ignorent `nvidia-smi -lgc` selon leur firmware — l'UI c
 
 Cette variable d'environnement surcharge le répertoire d'état (backend et script), ce qui permet de tester sans toucher `/etc`.
 
+## Mises à jour système
+
+### Le principe
+
+Les endpoints `/api/v1/updates/*` du DGX Dashboard exigent leur propre authentification et n'écoutent que sur `127.0.0.1`, injoignable depuis ce conteneur — la console lit donc la vraie source : apt, via les fichiers déjà entretenus par l'hôte.
+
+Le flux est **à sens unique, hôte → app** : `dgx-updates.timer` tourne chaque heure sur l'hôte et écrit `/var/lib/spark-control-center/updates.json`, que cette app ne fait que lire. Contrairement au pipeline `gb10-tuning`, rien de ce que l'app écrit ne déclenche jamais de commande côté hôte : aucune liste blanche n'est nécessaire ici.
+
+- Les compteurs (`85 mises à jour`, `14 de sécurité`) viennent directement de `/var/lib/update-notifier/updates-available`, entretenu par `apt-daily.timer`.
+- La liste par paquet (nom/version actuelle/candidate) vient de `updates.json`, entretenu par `dgx-updates.timer` ci-dessous.
+- L'installation des mises à jour se fait toujours via le DGX Dashboard ou `apt` sur l'hôte — pas depuis cette console.
+
+### Installation
+
+```bash
+sudo install -m 755 host/dgx-updates/dgx-updates.sh /usr/local/sbin/dgx-updates.sh
+sudo install -m 644 host/dgx-updates/dgx-updates.service \
+                    host/dgx-updates/dgx-updates.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dgx-updates.timer
+```
+
+### Désinstallation
+
+```bash
+sudo systemctl disable --now dgx-updates.timer
+sudo rm /usr/local/sbin/dgx-updates.sh /etc/systemd/system/dgx-updates.service /etc/systemd/system/dgx-updates.timer
+```
+
+### Variables d'environnement
+
+- `UPDATES_OUT` (script) : surcharge le chemin de sortie JSON, pour tester sans toucher `/var/lib`.
+- `UPDATE_NOTIFIER_FILE`, `APT_STAMP_FILE`, `UPDATES_JSON` (backend) : surchargent les trois chemins d'entrée, pour tester.
+
+Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineInstalled: false` et une `note` expliquant l'absence de la liste des paquets — les compteurs de synthèse (qui ne dépendent pas du timer) restent inchangés.
+
 ## Structure
 
 ```

@@ -352,6 +352,30 @@ export interface MachineInfo {
   sources: { dmi: boolean; dgxRelease: boolean; hostSys: boolean; gpu: boolean };
 }
 
+export interface UpdatesSummary {
+  total: number;
+  security: number;
+  esmEnabled: boolean;
+  source: string;
+  checkedAt: string;
+}
+
+export interface UpdatePackage {
+  name: string;
+  current: string;
+  candidate: string;
+  origin: string;
+  arch: string;
+}
+
+export interface UpdatesState {
+  summary: UpdatesSummary | null;
+  packages: UpdatePackage[];
+  packagesGeneratedAt: string | null;
+  pipelineInstalled: boolean;
+  note: string | null;
+}
+
 export interface ClaudeCodeState {
   id: string;
   label: string;
