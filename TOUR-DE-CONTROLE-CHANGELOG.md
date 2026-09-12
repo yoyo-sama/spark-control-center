@@ -185,3 +185,62 @@ traduction complète, la fonctionnalité étant arrivée en français dans une U
 skills — voir/activer/éditer/créer —, plugins et MCP en lecture seule, `settings*.json` éditable SAUF
 `hooks` et `permissions`, qui resteraient une exécution de code arbitraire pilotable depuis une UI sans
 authentification).
+
+## 2026-09-12 — Étape 2 : réglage Ollama pour le codage, onglet opencode, masquage de ComfyUI
+
+### Réglage Ollama (appliqué hors application, sur demande de l'utilisateur)
+
+Constat de départ : opencode déclarait 262144 de contexte pour ses 4 modèles (le contexte natif du modèle,
+`qwen35.context_length`), alors que le serveur Ollama tournait avec `OLLAMA_CONTEXT_LENGTH=65536`. opencode
+passe par l'API compatible OpenAI, qui n'accepte pas de `num_ctx` par requête : le défaut du serveur fait
+donc foi, et les longues conversations étaient **tronquées silencieusement**. Aucun des deux outils ne peut
+voir ce défaut seul.
+
+Coût mémoire **mesuré** avant de choisir (modèle `orcarouter-qwen3.8-27b`, KV en q8_0) : 8K → 21,8 Gio ;
+64K → 24,3 Gio ; 128K → 26,5 Gio, soit ~2,2 Gio par tranche de 64K. 256K resterait abordable (~31 Gio sur
+121), mais plusieurs sources rapportent des instabilités de graphes CUDA au-delà de 128K sur GB10 (une
+recette GLM documentée redescend à 96K pour cette raison) et l'outillage d'optimisation propre à cette
+machine retient 131K. Valeur retenue : **131072**, mesurée et corroborée, plutôt que le maximum théorique.
+
+Appliqué en recréant le conteneur (spécification sauvegardée dans `~/backups/ollama-api-spec-20260912.json`,
+volume nommé `ollama-data` conservé) :
+- `OLLAMA_CONTEXT_LENGTH` 65536 → **131072**
+- `OLLAMA_MAX_LOADED_MODELS` 3 → **2** — devenu nécessaire : à ~26,5 Gio par modèle chargé, trois modèles
+  résidents affameraient ComfyUI, qui puise dans la **même** mémoire unifiée. À 2, le modèle de codage et
+  `gemma4:e4b` (enrichissement de prompt des studios) cohabitent.
+- Inchangés volontairement : `NUM_PARALLEL=1` (dans Ollama le cache KV est alloué en *contexte × parallélisme* ;
+  les guides génériques conseillent 2-4 mais supposent des contextes bien plus petits), `FLASH_ATTENTION=1` et
+  `KV_CACHE_TYPE=q8_0` (ce sont eux qui rendent 128K abordable), `KEEP_ALIVE=30m`.
+- `opencode.json` aligné sur 131072 (sauvegarde `~/backups/opencode.json.bak-20260912`).
+
+Vérifié : contexte effectif 131072, 26,5 Gio résident, 4 modèles intacts, open-webui et canvas-ai-studio
+répondent. **Limite non corrigeable par réglage** : Ollama ne fait pas de cache de préfixe sur les prompts
+système répétés (2-4 s avant le premier token sur prompts longs) — c'est le vrai plafond pour un agent de
+codage, et l'argument pour vLLM le jour où ce sera gênant.
+
+### Application
+
+- **Onglet ComfyUI masqué** (`hidden: true` dans le registre) — décision utilisateur, **le code reste en
+  place** et se réactive en retirant ce drapeau. Les constats qui le ciblent gardent leur texte mais
+  perdent leur bouton d'action (on ne propose pas d'ouvrir un onglet masqué).
+- **Onglet opencode** : modèle par défaut, fenêtre de contexte (avec « Ollama serves: N » en regard),
+  les 7 réglages de compaction, et le tableau des modèles déclarés avec pastille servi/non servi. Même
+  pipeline `preview → confirmation → apply` que ComfyUI. Nouveau `restart.kind: "none"` (opencode relit sa
+  configuration à chaque session) : ni bouton ni commande, juste la phrase.
+- **Édition JSON** : aller-retour `JSON.parse`/`stringify` acceptable ici car le fichier est du JSON strict —
+  mais **refus explicite si le fichier ressemble à du JSONC** (`//` ou `/*` hors chaîne), pour ne pas
+  reproduire le risque de destruction de commentaires du `compose.yaml`. Garde-fou testé.
+- **Deux règles inter-applications** : `opencode-context-mismatch` (high) et `opencode-model-drift` (medium).
+  Elles ne se déclenchent pas aujourd'hui puisque tout est aligné — vérifié en les faisant délibérément
+  déclencher sur une copie désalignée, une règle qui ne se déclenche jamais étant indiscernable d'une règle
+  cassée.
+
+### Bug trouvé en vérification, invisible pour les lots
+
+L'API renvoyait `ollama.installed: []` et tous les modèles en « non servi » **en production seulement** :
+le backend interrogeait `http://localhost:11434` depuis l'intérieur du conteneur, où `localhost` désigne le
+conteneur lui-même. `ollama-api` vit sur le réseau `bridge`, docker-manager sur `docker-manager_default` :
+ni `localhost`, ni le nom du conteneur, ni son IP directe ne fonctionnent — seule la passerelle hôte répond.
+Conséquence : la règle `opencode-model-drift` criait au loup. Le lot n'a pas pu le voir, ayant testé en
+lançant le backend sur l'hôte. Corrigé par `extra_hosts: host.docker.internal:host-gateway` + `OLLAMA_URL`
+en variable d'environnement (défaut `localhost` pour que les tests hôte continuent de marcher).

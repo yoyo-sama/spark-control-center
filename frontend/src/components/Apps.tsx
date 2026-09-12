@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import ComfyUiPanel from './ComfyUiPanel';
+import OpencodePanel from './OpencodePanel';
 import type { AppSummary } from '../types';
 
 const API_BASE = '/api';
 
-// ponytail: only ComfyUI has a panel today. Add an entry here when another app gets one.
 const PANELS: Record<string, (appId: string) => React.ReactNode> = {
   comfyui: (appId) => <ComfyUiPanel appId={appId} />,
+  opencode: (appId) => <OpencodePanel appId={appId} />,
 };
 
 export default function Apps({ initialAppId }: { initialAppId?: string }) {

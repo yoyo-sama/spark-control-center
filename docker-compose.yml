@@ -9,8 +9,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/gb10-tuning:/etc/gb10-tuning
       - /home/sparks/comfyui-spark:/home/sparks/comfyui-spark
+      - /home/sparks/.config/opencode:/home/sparks/.config/opencode
+    extra_hosts:
+      # ollama-api publie 11434 sur l'hôte et vit sur un autre réseau docker :
+      # depuis ce conteneur, localhost ne l'atteint pas, la passerelle hôte si.
+      - "host.docker.internal:host-gateway"
     environment:
       - PORT=3001
+      - OLLAMA_URL=http://host.docker.internal:11434
     deploy:
       resources:
         reservations:

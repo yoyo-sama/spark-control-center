@@ -114,6 +114,10 @@ export default function EditConfirm({ appId, preview, onClose, onApplied }: Prop
               </div>
             )}
 
+            {preview.restart.kind === 'none' && (
+              <p className="text-sm text-muted">{preview.restart.cost}</p>
+            )}
+
             {preview.restart.kind === 'recreate' && (
               <div>
                 <p className="text-sm text-muted mb-2">

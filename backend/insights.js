@@ -36,7 +36,10 @@ async function collectFacts() {
 router.get('/', async (req, res) => {
   const facts = await collectFacts();
   const insights = RULES.filter((r) => r.detect(facts))
-    .map(({ id, severity, target, title, why, action }) => ({ id, severity, target, title, why, action }))
+    .map(({ id, severity, target, title, why, action }) => {
+      const app = APPS.find((a) => a.id === target);
+      return { id, severity, target, title, why, action: !app || app.hidden ? null : action };
+    })
     .sort((a, b) => ORDER[a.severity] - ORDER[b.severity]);
   res.json({ insights });
 });

@@ -176,7 +176,7 @@ export interface DiffLine {
 }
 
 export interface RestartInfo {
-  kind: 'restart' | 'recreate';
+  kind: 'restart' | 'recreate' | 'none';
   containerName?: string;
   command?: string;
   cwd?: string;
@@ -199,4 +199,43 @@ export interface Insight {
   title: string;
   why: string;
   action: null | { kind: 'app'; appId: string };
+}
+
+export interface OpencodeModel {
+  id: string;
+  name: string;
+  context: number;
+  output: number;
+  servedByOllama: boolean;
+}
+
+export interface OpencodeOllamaInfo {
+  reachable: boolean;
+  contextLength: number | null;
+  installed: string[];
+}
+
+export interface OpencodeCompaction {
+  auto: boolean;
+  prune: boolean;
+  threshold: number;
+  reserved: number;
+  strategy: 'summarize' | 'truncate';
+  preserveRecentMessages: number;
+  preserveSystemPrompt: boolean;
+}
+
+export interface OpencodeState {
+  id: string;
+  label: string;
+  detected: boolean;
+  reason: string;
+  containerName: string | null;
+  containerRunning: boolean;
+  projectDir: string;
+  configFile: string;
+  model: string;
+  models: OpencodeModel[];
+  ollama: OpencodeOllamaInfo;
+  compaction: OpencodeCompaction;
 }

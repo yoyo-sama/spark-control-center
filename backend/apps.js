@@ -257,12 +257,218 @@ function applyPlan(plan) {
   return { ok: true, backup };
 }
 
+// ---------- opencode ----------
+
+function opencodeDir() {
+  return process.env.OPENCODE_DIR || '/home/sparks/.config/opencode';
+}
+function opencodeConfigFile() {
+  return path.join(opencodeDir(), 'opencode.json');
+}
+
+function detectOpencode() {
+  const file = opencodeConfigFile();
+  if (!fs.existsSync(file)) return { detected: false, reason: `opencode.json not found in ${opencodeDir()}` };
+  try {
+    JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    return { detected: false, reason: `opencode.json does not parse: ${e.message}` };
+  }
+  return { detected: true, reason: '' };
+}
+
+// JSON.parse/JSON.stringify round-trips destroy comments. opencode.json is normally
+// strict JSON, but refuse to touch it if it looks like JSONC (// or /* outside a string).
+function hasJsonComments(text) {
+  const withoutStrings = text.replace(/"(?:\\.|[^"\\])*"/g, '""');
+  return /\/\/|\/\*/.test(withoutStrings);
+}
+
+// Inside the container `localhost` is the container itself, not the host where
+// ollama-api publishes 11434 — hence OLLAMA_URL, set to the host gateway in
+// docker-compose.yml. The localhost default keeps host-side tests working.
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+
+async function fetchOllamaTags() {
+  try {
+    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    return (data.models || []).map((m) => m.name);
+  } catch {
+    return null; // unreachable
+  }
+}
+
+async function ollamaContextLengthFromContainer() {
+  try {
+    const info = await docker.getContainer('ollama-api').inspect();
+    const line = (info.Config.Env || []).find((e) => e.startsWith('OLLAMA_CONTEXT_LENGTH='));
+    if (!line) return null;
+    const n = parseInt(line.slice('OLLAMA_CONTEXT_LENGTH='.length), 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ollamaInfo() {
+  const installed = await fetchOllamaTags();
+  if (installed === null) return { reachable: false, contextLength: null, installed: [] };
+  return { reachable: true, contextLength: await ollamaContextLengthFromContainer(), installed };
+}
+
+function providerModels(config) {
+  return (config.provider && config.provider.ollama && config.provider.ollama.models) || {};
+}
+
+async function readOpencode() {
+  const config = JSON.parse(fs.readFileSync(opencodeConfigFile(), 'utf8'));
+  const declared = providerModels(config);
+  const ollama = await ollamaInfo();
+  const models = Object.entries(declared).map(([id, m]) => ({
+    id,
+    name: m.name,
+    context: m.limit && m.limit.context,
+    output: m.limit && m.limit.output,
+    servedByOllama: ollama.installed.includes(id),
+  }));
+  return {
+    projectDir: opencodeDir(),
+    configFile: opencodeConfigFile(),
+    model: config.model,
+    models,
+    ollama,
+    compaction: config.compaction,
+  };
+}
+
+async function opencodeFacts() {
+  const d = detectOpencode();
+  if (!d.detected) return null;
+  const config = JSON.parse(fs.readFileSync(opencodeConfigFile(), 'utf8'));
+  const declared = providerModels(config);
+  const ollama = await ollamaInfo();
+  return {
+    declaredContexts: Object.values(declared).map((m) => m.limit && m.limit.context),
+    ollamaContextLength: ollama.contextLength,
+    declared: Object.keys(declared),
+    installed: ollama.installed,
+  };
+}
+
+const OPENCODE_RESTART = {
+  kind: 'none',
+  containerName: null,
+  command: null,
+  cwd: null,
+  cost: 'No restart needed — opencode reads its config at the start of each session.',
+};
+
+// Index-wise diff: every opencode edit only replaces values on existing keys, never
+// adds/removes a key, so before/after serializations always have the same line count —
+// a plain per-line comparison is enough, no LCS needed.
+function buildLineDiff(oldLines, newLines) {
+  const len = Math.max(oldLines.length, newLines.length);
+  const changed = [];
+  for (let i = 0; i < len; i++) if (oldLines[i] !== newLines[i]) changed.push(i);
+
+  const diff = [];
+  let lastEnd = -1;
+  for (const idx of changed) {
+    const start = Math.max(0, idx - 3, lastEnd + 1);
+    for (let i = start; i < idx; i++) diff.push({ kind: 'context', line: i + 1, text: oldLines[i] });
+    diff.push({ kind: 'removed', line: idx + 1, text: oldLines[idx] });
+    diff.push({ kind: 'added', line: null, text: newLines[idx] });
+    const end = Math.min(oldLines.length - 1, idx + 3);
+    for (let i = idx + 1; i <= end; i++) diff.push({ kind: 'context', line: i + 1, text: oldLines[i] });
+    lastEnd = end;
+  }
+  return diff;
+}
+
+const COMPACTION_VALIDATORS = {
+  auto: (v) => typeof v === 'boolean',
+  prune: (v) => typeof v === 'boolean',
+  preserveSystemPrompt: (v) => typeof v === 'boolean',
+  threshold: (v) => typeof v === 'number' && v > 0 && v < 1,
+  reserved: (v) => Number.isInteger(v) && v >= 0,
+  preserveRecentMessages: (v) => Number.isInteger(v) && v >= 0,
+  strategy: (v) => v === 'summarize' || v === 'truncate',
+};
+
+// Returns { error } or { response, plan }. Async: warnings need a live read of Ollama.
+async function previewOpencode(body) {
+  const target = body && body.target;
+  if (!['model', 'context', 'compaction'].includes(target)) {
+    return { error: 'target must be "model", "context" or "compaction"' };
+  }
+
+  const file = opencodeConfigFile();
+  const content = fs.readFileSync(file, 'utf8');
+  if (hasJsonComments(content)) {
+    return { error: `${file} looks like JSONC (contains // or /*): refusing a JSON.parse/stringify round-trip that would destroy comments` };
+  }
+  const config = JSON.parse(content);
+  const models = providerModels(config);
+  const ollama = await ollamaInfo();
+  const warnings = [];
+  let summary;
+
+  if (target === 'model') {
+    if (typeof body.value !== 'string') return { error: 'value must be a string' };
+    const id = body.value.replace(/^ollama\//, '');
+    if (!Object.prototype.hasOwnProperty.call(models, id)) return { error: `Unknown model: ${body.value}` };
+    config.model = body.value;
+    if (!ollama.installed.includes(id)) warnings.push('Ollama does not currently serve this model.');
+    summary = `Default model changed to ${body.value}`;
+  } else if (target === 'context') {
+    if (!Number.isInteger(body.value) || body.value < 4096 || body.value > 1048576) {
+      return { error: 'value must be an integer in [4096, 1048576]' };
+    }
+    for (const m of Object.values(models)) {
+      if (m.limit) m.limit.context = body.value;
+    }
+    if (ollama.contextLength !== null && body.value !== ollama.contextLength) {
+      warnings.push(
+        `Ollama serves ${ollama.contextLength} tokens: opencode would advertise a context it will not get, and long conversations would be silently truncated.`
+      );
+    }
+    summary = `limit.context set to ${body.value} on ${Object.keys(models).length} model(s)`;
+  } else {
+    const value = body.value;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return { error: 'value must be an object' };
+    for (const k of Object.keys(value)) {
+      if (!COMPACTION_VALIDATORS[k]) return { error: `Unknown compaction key: ${k}` };
+      if (!COMPACTION_VALIDATORS[k](value[k])) return { error: `Invalid value for compaction.${k}` };
+    }
+    config.compaction = { ...(config.compaction || {}), ...value };
+    summary = `compaction updated: ${Object.keys(value).join(', ')}`;
+  }
+
+  const newContent = JSON.stringify(config, null, 2) + '\n';
+  const diff = buildLineDiff(content.split('\n'), newContent.split('\n'));
+
+  return {
+    response: {
+      token: crypto.randomUUID(),
+      file,
+      summary,
+      diff,
+      warnings,
+      restart: { ...OPENCODE_RESTART },
+    },
+    plan: { target: 'opencode-config', file, hash: sha(content), content: newContent },
+  };
+}
+
 // ---------- registry ----------
 
 const APPS = [
   {
     id: 'comfyui',
     label: 'ComfyUI',
+    hidden: true,
     get projectDir() {
       return comfyDir();
     },
@@ -272,6 +478,19 @@ const APPS = [
     preview: previewComfy,
     apply: applyPlan,
     facts: comfyFacts,
+  },
+  {
+    id: 'opencode',
+    label: 'opencode',
+    get projectDir() {
+      return opencodeDir();
+    },
+    containerName: null,
+    detect: detectOpencode,
+    read: readOpencode,
+    preview: previewOpencode,
+    apply: applyPlan,
+    facts: opencodeFacts,
   },
 ];
 
@@ -294,7 +513,7 @@ async function summarize(app) {
 }
 
 router.get('/', async (req, res) => {
-  res.json({ apps: await Promise.all(APPS.map(summarize)) });
+  res.json({ apps: await Promise.all(APPS.filter((a) => !a.hidden).map(summarize)) });
 });
 
 router.get('/:id', async (req, res) => {
@@ -305,10 +524,10 @@ router.get('/:id', async (req, res) => {
   res.json({ ...base, ...(await app.read()) });
 });
 
-router.post('/:id/preview', (req, res) => {
+router.post('/:id/preview', async (req, res) => {
   const app = APPS.find((a) => a.id === req.params.id);
   if (!app) return res.status(404).json({ error: 'Unknown app' });
-  const r = app.preview(req.body || {});
+  const r = await app.preview(req.body || {});
   if (r.error) return res.status(400).json({ error: r.error });
   previews.set(r.response.token, { appId: app.id, plan: r.plan, restart: r.response.restart, createdAt: Date.now() });
   res.json(r.response);

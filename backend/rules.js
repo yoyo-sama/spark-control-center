@@ -43,4 +43,35 @@ module.exports = [
       f.comfyui.flags.includes('--use-pytorch-cross-attention') &&
       !f.comfyui.flags.includes('--use-sage-attention'),
   },
+  {
+    id: 'opencode-context-mismatch',
+    severity: 'high',
+    target: 'opencode',
+    title: 'opencode advertises a context Ollama does not serve',
+    why:
+        'At least one model in opencode.json declares a limit.context different from OLLAMA_CONTEXT_LENGTH ' +
+        'on the ollama-api container: opencode would advertise a context window it will not actually get, ' +
+        'and long conversations would be silently truncated instead of triggering compaction in time. ' +
+        'Align limit.context on every model with OLLAMA_CONTEXT_LENGTH. Configurable in the opencode tab.',
+    action: { kind: 'app', appId: 'opencode' },
+    detect: (f) =>
+      !!f.opencode &&
+      f.opencode.ollamaContextLength !== null &&
+      f.opencode.declaredContexts.some((c) => c !== f.opencode.ollamaContextLength),
+  },
+  {
+    id: 'opencode-model-drift',
+    severity: 'medium',
+    target: 'opencode',
+    title: 'opencode and Ollama disagree on which models exist',
+    why:
+        'Either opencode.json declares a model Ollama does not serve (opencode would offer a model that fails ' +
+        'at call time), or Ollama serves a model opencode does not expose (installed but unreachable from ' +
+        'opencode). Configurable in the opencode tab.',
+    action: { kind: 'app', appId: 'opencode' },
+    detect: (f) =>
+      !!f.opencode &&
+      (f.opencode.declared.some((d) => !f.opencode.installed.includes(d)) ||
+        f.opencode.installed.some((i) => !f.opencode.declared.includes(i))),
+  },
 ];
