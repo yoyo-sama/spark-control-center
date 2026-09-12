@@ -14,6 +14,8 @@ require('dotenv').config();
 const { getHostMetrics, getDiskMetrics, getGpuMetrics, getGpuMemoryByContainer, getContainerStats } = require('./metrics');
 const { getContainerListeningPorts } = require('./hostports');
 const gb10Router = require('./gb10');
+const { router: appsRouter } = require('./apps');
+const { router: insightsRouter } = require('./insights');
 
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -450,6 +452,8 @@ setInterval(() => {
 }, 3600000);
 
 app.use('/api/gb10', gb10Router);
+app.use('/api/apps', appsRouter);
+app.use('/api/insights', insightsRouter);
 
 // JSON 404 for unknown API routes
 app.use('/api', (req, res) => {

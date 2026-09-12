@@ -88,7 +88,7 @@ export interface ContainerHistoryPoint {
   [key: string]: number | string;
 }
 
-export type View = 'gb10' | 'dashboard' | 'container-detail' | 'dgx';
+export type View = 'gb10' | 'dashboard' | 'container-detail' | 'dgx' | 'apps';
 
 export type Gb10SettingKey =
   | 'gpuClockLimitMhz'
@@ -127,22 +127,76 @@ export interface Gb10Actual {
   thermalMonitor: boolean | null;
 }
 
-export interface Gb10EnvAdviceItem {
-  name: string;
-  expected?: string;
-  containers: string[];
-}
-
-export interface Gb10EnvAdvice {
-  recommended: Gb10EnvAdviceItem[];
-  banned: Gb10EnvAdviceItem[];
-}
-
 export interface Gb10State {
   desired: Gb10Desired;
   actual: Gb10Actual;
   status: Record<Gb10SettingKey, Gb10Status>;
   lastApply: unknown;
   pipelineInstalled: boolean;
-  envAdvice: Gb10EnvAdvice;
+}
+
+export interface AppSummary {
+  id: string;
+  label: string;
+  detected: boolean;
+  reason: string;
+  containerName: string;
+  containerRunning: boolean;
+  projectDir: string;
+}
+
+export interface AppCmdlineKnownFlag {
+  flag: string;
+  label: string;
+  why: string;
+  danger: string | null;
+}
+
+export interface AppState {
+  id: string;
+  label: string;
+  detected: boolean;
+  containerName: string;
+  containerRunning: boolean;
+  projectDir: string;
+  composeFile: string;
+  cmdline: {
+    raw: string;
+    flags: string[];
+    known: AppCmdlineKnownFlag[];
+  };
+  env: Record<string, string>;
+  scripts: Array<{ name: string; enabled: boolean; note: string | null }>;
+}
+
+export interface DiffLine {
+  kind: 'context' | 'removed' | 'added';
+  line: number | null;
+  text: string;
+}
+
+export interface RestartInfo {
+  kind: 'restart' | 'recreate';
+  containerName?: string;
+  command?: string;
+  cwd?: string;
+  cost?: string;
+}
+
+export interface PreviewResult {
+  token: string;
+  file: string;
+  summary: string;
+  diff: DiffLine[];
+  warnings: string[];
+  restart: RestartInfo;
+}
+
+export interface Insight {
+  id: string;
+  severity: 'high' | 'medium' | 'low';
+  target: string;
+  title: string;
+  why: string;
+  action: null | { kind: 'app'; appId: string };
 }

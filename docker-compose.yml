@@ -8,6 +8,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/gb10-tuning:/etc/gb10-tuning
+      - /home/sparks/comfyui-spark:/home/sparks/comfyui-spark
     environment:
       - PORT=3001
     deploy:

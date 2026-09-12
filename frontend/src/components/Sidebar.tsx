@@ -1,4 +1,4 @@
-import { Container, Cpu, Gauge, LayoutDashboard, Moon, Sun } from 'lucide-react';
+import { AppWindow, Container, Cpu, Gauge, LayoutDashboard, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../lib/theme';
 import type { View } from '../types';
 
@@ -33,6 +33,17 @@ export default function Sidebar({ currentView, onViewChange }: Props) {
         >
           <Cpu size={16} strokeWidth={2} />
           GB10
+        </button>
+        <button
+          onClick={() => onViewChange('apps')}
+          className={`w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
+            currentView === 'apps'
+              ? 'bg-hover text-fg'
+              : 'text-muted hover:text-fg hover:bg-hover'
+          }`}
+        >
+          <AppWindow size={16} strokeWidth={2} />
+          Apps
         </button>
         <button
           onClick={() => onViewChange('dashboard')}

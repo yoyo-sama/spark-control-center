@@ -27,12 +27,6 @@ const DEFAULT_DESIRED = {
   thermalMonitor: false,
 };
 
-const RECOMMENDED_ENV = [
-  { name: 'CUDA_CACHE_MAXSIZE', expected: '4294967296' },
-  { name: 'NCCL_P2P_DISABLE', expected: '1' },
-];
-const BANNED_ENV = ['CUDA_CACHE_DISABLE', 'PYTORCH_NO_CUDA_MEMORY_CACHING'];
-
 const BOUNDS = {
   gpuClockLimitMhz: (v) => v === null || (Number.isInteger(v) && v >= 300 && v <= 3003),
   gpuPersistenceMode: (v) => typeof v === 'boolean',
@@ -191,27 +185,6 @@ function computeStatus(stored, desired, actual, lastApply) {
   return status;
 }
 
-async function getEnvAdvice() {
-  let envs = [];
-  try {
-    const containers = await docker.listContainers(); // default: running only
-    const inspects = await Promise.all(containers.map((c) => docker.getContainer(c.Id).inspect()));
-    envs = inspects.map((i) => ({ name: i.Name.replace(/^\//, ''), env: i.Config.Env || [] }));
-  } catch {
-    envs = [];
-  }
-  const recommended = RECOMMENDED_ENV.map(({ name, expected }) => ({
-    name,
-    expected,
-    containers: envs.filter((c) => c.env.includes(`${name}=${expected}`)).map((c) => c.name),
-  }));
-  const banned = BANNED_ENV.map((name) => ({
-    name,
-    containers: envs.filter((c) => c.env.some((e) => e.startsWith(`${name}=`))).map((c) => c.name),
-  }));
-  return { recommended, banned };
-}
-
 async function buildFullState(stored) {
   const desired = { ...DEFAULT_DESIRED, ...stored };
   const actual = readActual();
@@ -222,7 +195,6 @@ async function buildFullState(stored) {
     status: computeStatus(stored, desired, actual, lastApply),
     lastApply,
     pipelineInstalled: lastApply !== null,
-    envAdvice: await getEnvAdvice(),
   };
 }
 

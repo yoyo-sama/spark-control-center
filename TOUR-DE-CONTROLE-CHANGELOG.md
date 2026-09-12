@@ -124,3 +124,64 @@ puis lire le badge de la carte.
 **Contexte utile au moment du test** : état de départ 2418 MHz applicatif / 3003 MHz max, `vm.swappiness` à 60,
 swap actif, aucun réglage posé (les 5 cartes affichent `Not configured`). Le vrai juge de paix reste une
 génération longue (LTX/vidéo) sans freeze, pas seulement le badge.
+
+## 2026-09-12 — Étape 1 « Apps » : rubrique par application, pipeline d'édition et moteur de constats
+
+Suite de la feuille de route GB10, cadrée avec l'utilisateur : l'interface ne doit pas devenir une usine
+à gaz en accumulant un réglage par carte. **Inversion de l'unité d'affichage** : la page GB10 montre
+désormais des *constats* (ce qui est actionnable maintenant sur cette machine) plutôt que le catalogue de
+tout ce qui est réglable — sa longueur suit le nombre de problèmes réels. Le catalogue complet vit dans
+une nouvelle rubrique **Apps**, à onglets horizontaux, un par application détectée.
+
+3 lots parallèles (propriété de fichiers disjointe, contrat d'API figé au plan) + une passe de traduction.
+
+| Lot | Livré | Modèle |
+|---|---|---|
+| 1 | `backend/apps.js` (registre + pipeline d'édition), `rules.js` (3 règles), `insights.js`, `apps.test.js` (9 tests), +4 lignes dans `index.js`, +1 volume au compose | opus |
+| 2 | `Apps.tsx`, `ComfyUiPanel.tsx`, `EditConfirm.tsx` + `App.tsx`/`Sidebar.tsx`/`types.ts` | sonnet |
+| 3 | `Insights.tsx` + retrait du bloc env informatif de `Gb10.tsx` | sonnet |
+| — | Passe de traduction FR→EN sur les 6 fichiers (l'UI de l'app est en anglais) | sonnet |
+
+**Pipeline d'édition (le cœur)** : lire → `preview` (diff + avertissements, n'écrit rien, renvoie un token
+portant le hash du contenu lu) → confirmation explicite dans une modale → `apply` → sauvegarde horodatée
+→ écriture atomique (fichier temporaire + `rename`) **préservant mode/uid/gid d'origine** → annonce de ce
+qu'il faut redémarrer. Un `apply` n'est atteignable que par la modale ; un token rejoué ou un fichier
+modifié entre-temps est refusé (400 / 409).
+
+**Décision imposée par le réel** : le conteneur n'a pas le binaire `docker`, et surtout modifier
+`COMFY_CMDLINE_EXTRA` exige une *recréation* du conteneur (un `restart` ne relit jamais l'environnement).
+D'où deux comportements : un script bascule avec un vrai bouton de redémarrage (bind-mount relu au
+démarrage, via la route existante `POST /api/containers/:id/restart`), tandis qu'un changement de ligne
+de commande affiche la commande hôte à copier, avec la raison. Pas de recréation maison via dockerode :
+elle désynchroniserait le hash de configuration de compose sur un conteneur de production.
+
+**Deux pièges du fichier cible, traités explicitement** :
+1. `comfyui-spark/compose.yaml` est truffé de commentaires de valeur ET contient **deux** lignes
+   `COMFY_CMDLINE_EXTRA` — la 26 active et la **27 commentée**, qui propose justement
+   `--use-sage-attention --bf16-*`. L'édition est textuelle et chirurgicale (aucun sérialiseur YAML, la
+   regex ignore les lignes commentées). Vérifié : 2 lignes au diff, 19 commentaires avant comme après,
+   ligne 27 intacte, fichier résultant valide pour `docker compose config`.
+2. Ce fichier contient un `HF_TOKEN` en clair. Toute clé d'environnement dont le nom contient
+   `TOKEN`/`KEY`/`SECRET`/`PASSWORD` sort masquée en `***`. Vérifié en réel : zéro occurrence de `hf_`
+   dans les réponses d'API.
+
+**Constats livrés (3, volontairement)** : plafond d'horloge non posé (high), `vm.swappiness` à 60
+(medium), ComfyUI en attention PyTorch (medium, avec la réserve honnête que les scripts 20/21 sont
+bloqués par un `-std=c++17` figé). **Rien** sur `CUDA_CACHE_MAXSIZE`/`NCCL_P2P_DISABLE`, déjà corrects :
+c'est tout l'intérêt du modèle.
+
+**Vérifications faites par l'orchestrateur** : suite de tests du lot 1 rejouée (9/9) + campagne adverse
+indépendante sur copie (injections ` #`, saut de ligne, espace en tête → rejetées ; rejeu de token →
+refusé) ; coutures vérifiées **dans les deux sens** (aucun champ produit non consommé, aucune URL
+orpheline) ; `envAdvice` éliminé des deux côtés ; production ComfyUI prouvée intacte après chaque
+campagne (mtime, propriété, absence de `.bak`) ; parcours réel dans le navigateur jusqu'à la modale de
+diff, fermée sans écrire.
+
+**Corrections faites en vérification** : suppression des types `Gb10EnvAdvice`/`Gb10EnvAdviceItem` morts
+(délibérément sortis du périmètre des lots pour éviter une course au build entre deux lots) ; passe de
+traduction complète, la fonctionnalité étant arrivée en français dans une UI anglaise.
+
+**Hors périmètre, prochaines étapes** : onglets Ollama et opencode (étape 2), puis Claude Code (étape 3 :
+skills — voir/activer/éditer/créer —, plugins et MCP en lecture seule, `settings*.json` éditable SAUF
+`hooks` et `permissions`, qui resteraient une exécution de code arbitraire pilotable depuis une UI sans
+authentification).

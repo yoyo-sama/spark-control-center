@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { HardDrive, Loader2, RotateCw, Thermometer, Wind, Zap } from 'lucide-react';
 import StatCard from './StatCard';
 import ConfirmModal from './ConfirmModal';
-import type { Gb10Desired, Gb10EnvAdviceItem, Gb10SettingKey, Gb10State, Gb10Status } from '../types';
+import type { Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status } from '../types';
+import Insights from './Insights';
 
 const API_BASE = '/api';
 
@@ -108,38 +109,12 @@ function Toggle({
   );
 }
 
-function EnvRow({ item, kind }: { item: Gb10EnvAdviceItem; kind: 'recommended' | 'banned' }) {
-  const active = item.containers.length > 0;
-  const colorClass = active
-    ? kind === 'recommended'
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : 'text-red-600 dark:text-red-400'
-    : 'text-muted';
-  return (
-    <div className="flex items-center justify-between gap-3 py-2 border-b border-line last:border-0 text-sm">
-      <div className="min-w-0">
-        <span className="font-mono text-xs">
-          {item.name}
-          {item.expected ? `=${item.expected}` : ''}
-        </span>
-        {item.name === 'CUDA_CACHE_MAXSIZE' && (
-          <p className="text-[11px] text-muted mt-0.5">20 s/step to 6.6 s/step (3x)</p>
-        )}
-        {active && <p className="text-[11px] text-muted mt-0.5 truncate">{item.containers.join(', ')}</p>}
-      </div>
-      <span className={`text-xs font-medium shrink-0 ${colorClass}`}>
-        {active ? (kind === 'recommended' ? 'Set' : 'Detected') : 'not set'}
-      </span>
-    </div>
-  );
-}
-
 const buttonClass =
   'px-3 h-9 rounded-lg border border-line text-sm font-medium hover:bg-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20';
 const inputClass =
   'h-9 px-2.5 rounded-lg border border-line bg-base text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 disabled:opacity-50 disabled:cursor-not-allowed';
 
-export default function Gb10() {
+export default function Gb10({ onOpenApp }: { onOpenApp?: (appId: string) => void }) {
   const [state, setState] = useState<Gb10State | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -241,6 +216,8 @@ export default function Gb10() {
               installed (see README).
             </div>
           )}
+
+          <Insights onOpenApp={onOpenApp} />
 
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold tracking-tight">GPU metrics</h2>
@@ -424,21 +401,6 @@ export default function Gb10() {
             </SettingCard>
           </div>
 
-          <div className="bg-surface border border-line rounded-xl p-4">
-            <h2 className="text-sm font-semibold tracking-tight mb-3">Environment variables (informational)</h2>
-            <div className="mb-4">
-              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Recommended</p>
-              {state.envAdvice.recommended.map((item) => (
-                <EnvRow key={item.name} item={item} kind="recommended" />
-              ))}
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Banned</p>
-              {state.envAdvice.banned.map((item) => (
-                <EnvRow key={item.name} item={item} kind="banned" />
-              ))}
-            </div>
-          </div>
         </>
       )}
 
