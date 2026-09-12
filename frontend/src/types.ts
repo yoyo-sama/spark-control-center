@@ -225,6 +225,17 @@ export interface OpencodeCompaction {
   preserveSystemPrompt: boolean;
 }
 
+export interface OpencodeSkillSources {
+  paths: string[];
+  urls: string[];
+}
+
+export interface OpencodeAgentsFile {
+  path: string;
+  exists: boolean;
+  lines: number;
+}
+
 export interface OpencodeState {
   id: string;
   label: string;
@@ -238,4 +249,46 @@ export interface OpencodeState {
   models: OpencodeModel[];
   ollama: OpencodeOllamaInfo;
   compaction: OpencodeCompaction;
+  skills: OpencodeSkillSources;
+  instructions: string[];
+  agentsFile: OpencodeAgentsFile;
+}
+
+export interface SkillRoot {
+  id: string;
+  path: string;
+  exists: boolean;
+}
+
+export interface SkillEntry {
+  name: string;
+  description: string;
+  root: string;
+  path: string;
+  file: string;
+  enabled: boolean;
+  symlink: string | null;
+  duplicateIn: string[];
+  lines: number;
+}
+
+export interface SkillDetail extends SkillEntry {
+  content: string;
+}
+
+export interface SkillsListResponse {
+  roots: SkillRoot[];
+  skills: SkillEntry[];
+}
+
+export interface ClaudeCodeState {
+  id: string;
+  label: string;
+  detected: boolean;
+  reason: string;
+  containerName: string | null;
+  containerRunning: boolean;
+  projectDir: string;
+  skillsCount: number;
+  skillsRoots: SkillRoot[];
 }

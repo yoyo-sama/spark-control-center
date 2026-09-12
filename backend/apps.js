@@ -322,6 +322,16 @@ function providerModels(config) {
   return (config.provider && config.provider.ollama && config.provider.ollama.models) || {};
 }
 
+function agentsFileInfo() {
+  const file = path.join(opencodeDir(), 'AGENTS.md');
+  try {
+    const content = fs.readFileSync(file, 'utf8');
+    return { path: file, exists: true, lines: content.split('\n').length - 1 }; // `wc -l` semantics
+  } catch {
+    return { path: file, exists: false, lines: 0 };
+  }
+}
+
 async function readOpencode() {
   const config = JSON.parse(fs.readFileSync(opencodeConfigFile(), 'utf8'));
   const declared = providerModels(config);
@@ -340,6 +350,14 @@ async function readOpencode() {
     models,
     ollama,
     compaction: config.compaction,
+    // Extra skill dirs/urls declared in opencode.json. The ~/.claude and ~/.agents roots
+    // are loaded by opencode on their own and never appear here — see skills.js.
+    skills: {
+      paths: (config.skills && config.skills.paths) || [],
+      urls: (config.skills && config.skills.urls) || [],
+    },
+    instructions: config.instructions || [],
+    agentsFile: agentsFileInfo(),
   };
 }
 
@@ -365,9 +383,8 @@ const OPENCODE_RESTART = {
   cost: 'No restart needed — opencode reads its config at the start of each session.',
 };
 
-// Index-wise diff: every opencode edit only replaces values on existing keys, never
-// adds/removes a key, so before/after serializations always have the same line count —
-// a plain per-line comparison is enough, no LCS needed.
+// Index-wise diff: an opencode edit replaces values on existing keys (same line count)
+// or appends one key at the end, so a plain per-line comparison is enough, no LCS needed.
 function buildLineDiff(oldLines, newLines) {
   const len = Math.max(oldLines.length, newLines.length);
   const changed = [];
@@ -377,9 +394,9 @@ function buildLineDiff(oldLines, newLines) {
   let lastEnd = -1;
   for (const idx of changed) {
     const start = Math.max(0, idx - 3, lastEnd + 1);
-    for (let i = start; i < idx; i++) diff.push({ kind: 'context', line: i + 1, text: oldLines[i] });
-    diff.push({ kind: 'removed', line: idx + 1, text: oldLines[idx] });
-    diff.push({ kind: 'added', line: null, text: newLines[idx] });
+    for (let i = start; i < idx && i < oldLines.length; i++) diff.push({ kind: 'context', line: i + 1, text: oldLines[i] });
+    if (idx < oldLines.length) diff.push({ kind: 'removed', line: idx + 1, text: oldLines[idx] });
+    if (idx < newLines.length) diff.push({ kind: 'added', line: null, text: newLines[idx] });
     const end = Math.min(oldLines.length - 1, idx + 3);
     for (let i = idx + 1; i <= end; i++) diff.push({ kind: 'context', line: i + 1, text: oldLines[i] });
     lastEnd = end;
@@ -398,10 +415,29 @@ const COMPACTION_VALIDATORS = {
 };
 
 // Returns { error } or { response, plan }. Async: warnings need a live read of Ollama.
+function validateSkillList(value, kind) {
+  if (!Array.isArray(value)) return 'value must be an array';
+  if (value.length > 20) return 'value must hold at most 20 entries';
+  for (const v of value) {
+    if (typeof v !== 'string' || !v.trim()) return 'every entry must be a non-empty string';
+    if (kind === 'paths' && !path.isAbsolute(v)) return `every path must be absolute: ${v}`;
+    if (kind === 'urls') {
+      let u;
+      try {
+        u = new URL(v);
+      } catch {
+        return `not a valid URL: ${v}`;
+      }
+      if (u.protocol !== 'https:') return `every url must use https: (got ${u.protocol})`;
+    }
+  }
+  return null;
+}
+
 async function previewOpencode(body) {
   const target = body && body.target;
-  if (!['model', 'context', 'compaction'].includes(target)) {
-    return { error: 'target must be "model", "context" or "compaction"' };
+  if (!['model', 'context', 'compaction', 'skillPaths', 'skillUrls'].includes(target)) {
+    return { error: 'target must be "model", "context", "compaction", "skillPaths" or "skillUrls"' };
   }
 
   const file = opencodeConfigFile();
@@ -435,6 +471,12 @@ async function previewOpencode(body) {
       );
     }
     summary = `limit.context set to ${body.value} on ${Object.keys(models).length} model(s)`;
+  } else if (target === 'skillPaths' || target === 'skillUrls') {
+    const key = target === 'skillPaths' ? 'paths' : 'urls';
+    const err = validateSkillList(body.value, key);
+    if (err) return { error: err };
+    config.skills = { ...(config.skills || {}), [key]: body.value };
+    summary = `skills.${key} set to ${body.value.length} entry(ies)`;
   } else {
     const value = body.value;
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return { error: 'value must be an object' };
@@ -460,6 +502,25 @@ async function previewOpencode(body) {
     },
     plan: { target: 'opencode-config', file, hash: sha(content), content: newContent },
   };
+}
+
+// ---------- claude code ----------
+
+function claudeDir() {
+  return process.env.CLAUDE_DIR || '/home/sparks/.claude';
+}
+
+function detectClaudeCode() {
+  return fs.existsSync(claudeDir())
+    ? { detected: true, reason: '' }
+    : { detected: false, reason: `${claudeDir()} not found` };
+}
+
+async function readClaudeCode() {
+  // Lazy require: skills.js pulls the write primitives from this module.
+  const { scanSkills } = require('./skills');
+  const { roots, skills } = scanSkills();
+  return { projectDir: claudeDir(), skillsCount: skills.length, skillsRoots: roots };
 }
 
 // ---------- registry ----------
@@ -491,6 +552,20 @@ const APPS = [
     preview: previewOpencode,
     apply: applyPlan,
     facts: opencodeFacts,
+  },
+  {
+    id: 'claude-code',
+    label: 'Claude Code',
+    get projectDir() {
+      return claudeDir();
+    },
+    containerName: null,
+    detect: detectClaudeCode,
+    read: readClaudeCode,
+    // settings.json editing is out of scope for now; skills have their own router.
+    preview: () => ({ error: 'Use /api/skills for skills' }),
+    apply: applyPlan,
+    facts: async () => null,
   },
 ];
 
@@ -546,4 +621,4 @@ router.post('/:id/apply', (req, res) => {
   res.json({ ok: true, backup: r.backup, restart: entry.restart });
 });
 
-module.exports = { router, APPS, mask };
+module.exports = { router, APPS, mask, sha, writePreserving, applyPlan, buildLineDiff };

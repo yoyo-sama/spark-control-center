@@ -10,6 +10,12 @@ services:
       - /etc/gb10-tuning:/etc/gb10-tuning
       - /home/sparks/comfyui-spark:/home/sparks/comfyui-spark
       - /home/sparks/.config/opencode:/home/sparks/.config/opencode
+      - /home/sparks/.claude:/home/sparks/.claude
+      - /home/sparks/.agents:/home/sparks/.agents
+      # ~/.claude/skills/watch est un lien vers ce répertoire : sans ce montage
+      # le lien est cassé dans le conteneur et la skill disparaît de la liste.
+      # Lecture seule : on n'édite jamais une skill qui appartient à un plugin.
+      - /home/sparks/.local/share/claude-plugins:/home/sparks/.local/share/claude-plugins:ro
     extra_hosts:
       # ollama-api publie 11434 sur l'hôte et vit sur un autre réseau docker :
       # depuis ce conteneur, localhost ne l'atteint pas, la passerelle hôte si.

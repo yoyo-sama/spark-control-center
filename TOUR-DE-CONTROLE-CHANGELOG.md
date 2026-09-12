@@ -244,3 +244,57 @@ ni `localhost`, ni le nom du conteneur, ni son IP directe ne fonctionnent — se
 Conséquence : la règle `opencode-model-drift` criait au loup. Le lot n'a pas pu le voir, ayant testé en
 lançant le backend sur l'hôte. Corrigé par `extra_hosts: host.docker.internal:host-gateway` + `OLLAMA_URL`
 en variable d'environnement (défaut `localhost` pour que les tests hôte continuent de marcher).
+
+## 2026-09-12 — Étape 3 : gestion des skills (partagée opencode / Claude Code)
+
+### Le fait qui a déterminé la conception
+
+`opencode debug skill` montre qu'opencode charge **automatiquement** les skills de Claude Code :
+sa documentation intégrée liste `~/.claude/skills/<nom>/SKILL.md` et `~/.agents/skills/<nom>/SKILL.md`
+sous « External skills (auto-loaded) ». Le partage n'est donc **pas un réglage** — il n'y avait aucun
+interrupteur à construire, contrairement à l'intuition de départ. Les skills sont une ressource commune :
+la surface de gestion vit dans un onglet `claude-code` (là où sont les fichiers), et l'onglet opencode y
+renvoie par un bouton plutôt que de dupliquer l'interface.
+
+### Deux pièges réels, désormais visibles dans l'UI
+
+1. **Doublons** : `gepeto` et `pinokio` existent dans `~/.claude/skills/` ET `~/.agents/skills/`. Contenus
+   identiques aujourd'hui, mais opencode résout `gepeto` depuis `~/.agents/` et `pinokio` depuis
+   `~/.claude/` : éditer la mauvaise copie serait sans effet, silencieusement. Affiché en ambre sur chaque
+   skill concernée.
+2. **Lien de plugin** : `~/.claude/skills/watch` est un lien vers
+   `~/.local/share/claude-plugins/claude-video/skills/watch`. L'éditer modifierait le plugin. Édition et
+   bascule **refusées côté serveur (409) et désactivées dans le DOM** — vérifié : seul `watch` a ses deux
+   contrôles en `disabled`.
+
+### Livré
+
+- `backend/skills.js` : scan des 3 racines, `GET /api/skills`, `GET /api/skills/:name`, `preview`/`apply`
+  pour `toggle | content | create | import`. Désactivation par renommage en `.disabled` (même convention
+  que les scripts ComfyUI). Réutilise `writePreserving`/`applyPlan`/`sha`/`buildLineDiff`.
+- Onglet `claude-code` (liste, activation, édition, création, import depuis une URL **ou** un fichier lu
+  par le navigateur via `FileReader`) et, côté opencode, un bouton `Skills`, la gestion de `skills.paths` /
+  `skills.urls` et l'affichage des instructions (`AGENTS.md`, 68 lignes).
+
+### Frontière de confiance
+
+Un import écrit un fichier que deux outils d'IA chargeront automatiquement. Garde-fous, tous vérifiés
+individuellement par l'orchestrateur : nom restreint à `^[a-z0-9][a-z0-9-]{0,63}$` (`../evil`, `..`, `.`,
+`a/b`, `Bad Name`, `-lead`, `""` tous refusés, et aucun fichier créé hors racine) ; `https:` obligatoire
+(`http:`, `file:`, `ftp:`, `javascript:` refusés) ; 256 Ko maximum ; frontmatter `name:`/`description:`
+exigé ; refus d'écraser une skill existante ; refus sur lien symbolique. **L'aperçu affiche le contenu
+intégral avant écriture** — seule occasion de relire ce qui va devenir actif.
+
+### Corrections faites en vérification
+
+- **Une seconde modale de confirmation avait été créée** pour les skills, copie de `EditConfirm` à
+  l'URL d'écriture près. Deux modales sur des chemins d'écriture finissent par diverger — l'une recevra un
+  garde-fou que l'autre n'aura pas. Unifiée par une prop `applyUrl` optionnelle : **une seule modale sert
+  les trois chemins** (ComfyUI, opencode, skills), 107 lignes supprimées.
+- **La suite `apps.test.js` était cassée depuis deux lots** et personne ne l'avait vue : ma passe de
+  traduction avait changé « Renommage » en « Renaming » sans que les tests soient rejoués, et l'ajout des
+  deux règles opencode invalidait `rules.length === 3`. Assertions corrigées, 9/9.
+- **La skill `watch` disparaissait silencieusement** de la liste en production : son lien pointe hors des
+  répertoires montés, donc il était cassé vu du conteneur. Corrigé en montant
+  `~/.local/share/claude-plugins` **en lecture seule** (vérifié : `touch` y échoue). Limite résiduelle
+  assumée : une skill dont le lien sort de tous les montages serait encore omise sans message.

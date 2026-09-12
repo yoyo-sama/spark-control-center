@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import ComfyUiPanel from './ComfyUiPanel';
 import OpencodePanel from './OpencodePanel';
+import ClaudeCodePanel from './ClaudeCodePanel';
 import type { AppSummary } from '../types';
 
 const API_BASE = '/api';
 
-const PANELS: Record<string, (appId: string) => React.ReactNode> = {
+const PANELS: Record<string, (appId: string, onOpenApp: (appId: string) => void) => React.ReactNode> = {
   comfyui: (appId) => <ComfyUiPanel appId={appId} />,
-  opencode: (appId) => <OpencodePanel appId={appId} />,
+  opencode: (appId, onOpenApp) => <OpencodePanel appId={appId} onOpenApp={onOpenApp} />,
+  'claude-code': () => <ClaudeCodePanel />,
 };
 
 export default function Apps({ initialAppId }: { initialAppId?: string }) {
@@ -88,7 +90,7 @@ export default function Apps({ initialAppId }: { initialAppId?: string }) {
         <p className="text-sm text-muted">{active.reason || 'App not detected.'}</p>
       )}
 
-      {active && active.detected && (PANELS[active.id] ? PANELS[active.id](active.id) : (
+      {active && active.detected && (PANELS[active.id] ? PANELS[active.id](active.id, setActiveId) : (
         <p className="text-sm text-muted">Nothing to configure here yet.</p>
       ))}
     </div>

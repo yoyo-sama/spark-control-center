@@ -6,7 +6,11 @@ import type { PreviewResult } from '../types';
 const API_BASE = '/api';
 
 interface Props {
-  appId: string;
+  // Where to POST the token. Defaults to the app pipeline; skills use their own
+  // endpoint. One confirmation modal for every write path, on purpose: two would
+  // drift, and one of them would end up missing a safeguard the other has.
+  appId?: string;
+  applyUrl?: string;
   preview: PreviewResult;
   onClose: () => void;
   onApplied: () => void;
@@ -20,7 +24,7 @@ const diffLineClass = {
 
 const diffPrefix = { context: ' ', removed: '-', added: '+' } as const;
 
-export default function EditConfirm({ appId, preview, onClose, onApplied }: Props) {
+export default function EditConfirm({ appId, applyUrl, preview, onClose, onApplied }: Props) {
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [result, setResult] = useState<{ backup: string } | null>(null);
@@ -32,7 +36,7 @@ export default function EditConfirm({ appId, preview, onClose, onApplied }: Prop
     setApplying(true);
     setApplyError(null);
     try {
-      const res = await fetch(`${API_BASE}/apps/${appId}/apply`, {
+      const res = await fetch(applyUrl ?? `${API_BASE}/apps/${appId}/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: preview.token }),

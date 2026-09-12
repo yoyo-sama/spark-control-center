@@ -32,7 +32,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
   );
 }
 
-export default function OpencodePanel({ appId }: { appId: string }) {
+export default function OpencodePanel({ appId, onOpenApp }: { appId: string; onOpenApp?: (appId: string) => void }) {
   const [state, setState] = useState<OpencodeState | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -41,6 +41,10 @@ export default function OpencodePanel({ appId }: { appId: string }) {
   const [modelValue, setModelValue] = useState('');
   const [contextValue, setContextValue] = useState(0);
   const [compaction, setCompaction] = useState<OpencodeCompaction | null>(null);
+  const [skillPaths, setSkillPaths] = useState<string[]>([]);
+  const [skillUrls, setSkillUrls] = useState<string[]>([]);
+  const [newSkillPath, setNewSkillPath] = useState('');
+  const [newSkillUrl, setNewSkillUrl] = useState('');
 
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -73,6 +77,8 @@ export default function OpencodePanel({ appId }: { appId: string }) {
       setModelValue(state.model);
       setContextValue(state.models[0]?.context ?? 0);
       setCompaction(state.compaction);
+      setSkillPaths(state.skills?.paths ?? []);
+      setSkillUrls(state.skills?.urls ?? []);
       setSeeded(true);
     }
   }, [state, seeded]);
@@ -150,11 +156,58 @@ export default function OpencodePanel({ appId }: { appId: string }) {
     }
   };
 
+  const previewSkillPaths = async (paths: string[]) => {
+    setPreviewing(true);
+    setPreviewError(null);
+    try {
+      const res = await fetch(`${API_BASE}/apps/${appId}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: 'skillPaths', value: paths }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to preview');
+      setPreview(data);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : 'Failed to preview');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const previewSkillUrls = async (urls: string[]) => {
+    setPreviewing(true);
+    setPreviewError(null);
+    try {
+      const res = await fetch(`${API_BASE}/apps/${appId}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: 'skillUrls', value: urls }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to preview');
+      setPreview(data);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : 'Failed to preview');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const selectedModel = state.models.find((m) => `ollama/${m.id}` === modelValue);
   const contextMismatch = state.ollama.contextLength != null && contextValue !== state.ollama.contextLength;
 
   return (
     <div className="space-y-4">
+      {onOpenApp && (
+        <button
+          onClick={() => onOpenApp('claude-code')}
+          className="px-3 h-9 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:opacity-90 transition-colors"
+        >
+          Skills
+        </button>
+      )}
+
       <div className={cardClass}>
         <h3 className="text-sm font-semibold tracking-tight mb-3">Default model</h3>
         <label className={labelClass} htmlFor="opencode-model">
@@ -296,6 +349,107 @@ export default function OpencodePanel({ appId }: { appId: string }) {
           {previewing && <Loader2 size={14} strokeWidth={2} className="animate-spin" />}
           Preview
         </button>
+      </div>
+
+      <div className={cardClass}>
+        <h3 className="text-sm font-semibold tracking-tight mb-3">Skill sources</h3>
+        <p className="text-xs text-muted mb-3">
+          <code className="font-mono">~/.claude/skills</code> and <code className="font-mono">~/.agents/skills</code>{' '}
+          are loaded automatically and do not need to be listed here.
+        </p>
+
+        <label className={labelClass}>Skill paths</label>
+        <ul className="space-y-1.5 mb-2">
+          {skillPaths.map((p, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <span className="flex-1 font-mono text-xs truncate">{p}</span>
+              <button
+                onClick={() => setSkillPaths(skillPaths.filter((_, idx) => idx !== i))}
+                className="px-2 h-7 rounded-lg border border-line text-xs hover:bg-hover transition-colors"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex items-center gap-2 mb-2">
+          <input
+            value={newSkillPath}
+            onChange={(e) => setNewSkillPath(e.target.value)}
+            placeholder="/abs/path/to/skills"
+            className={`${inputClass} flex-1`}
+          />
+          <button
+            onClick={() => {
+              if (!newSkillPath.trim()) return;
+              setSkillPaths([...skillPaths, newSkillPath.trim()]);
+              setNewSkillPath('');
+            }}
+            className={buttonClass}
+          >
+            Add
+          </button>
+        </div>
+        <button onClick={() => previewSkillPaths(skillPaths)} disabled={previewing} className={`${buttonClass} mb-4`}>
+          {previewing && <Loader2 size={14} strokeWidth={2} className="animate-spin" />}
+          Preview
+        </button>
+
+        <label className={labelClass}>Skill URLs</label>
+        <ul className="space-y-1.5 mb-2">
+          {skillUrls.map((u, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <span className="flex-1 font-mono text-xs truncate">{u}</span>
+              <button
+                onClick={() => setSkillUrls(skillUrls.filter((_, idx) => idx !== i))}
+                className="px-2 h-7 rounded-lg border border-line text-xs hover:bg-hover transition-colors"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex items-center gap-2 mb-2">
+          <input
+            value={newSkillUrl}
+            onChange={(e) => setNewSkillUrl(e.target.value)}
+            placeholder="https://..."
+            className={`${inputClass} flex-1`}
+          />
+          <button
+            onClick={() => {
+              if (!newSkillUrl.trim()) return;
+              setSkillUrls([...skillUrls, newSkillUrl.trim()]);
+              setNewSkillUrl('');
+            }}
+            className={buttonClass}
+          >
+            Add
+          </button>
+        </div>
+        <button onClick={() => previewSkillUrls(skillUrls)} disabled={previewing} className={buttonClass}>
+          {previewing && <Loader2 size={14} strokeWidth={2} className="animate-spin" />}
+          Preview
+        </button>
+      </div>
+
+      <div className={cardClass}>
+        <h3 className="text-sm font-semibold tracking-tight mb-3">Instructions</h3>
+        {state.instructions && state.instructions.length > 0 ? (
+          <ul className="text-sm space-y-1 mb-2">
+            {state.instructions.map((instr, i) => (
+              <li key={i} className="font-mono text-xs">{instr}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted mb-2">No instructions configured.</p>
+        )}
+        {state.agentsFile?.exists && (
+          <p className="text-sm text-muted">
+            AGENTS.md — <span className="font-mono text-xs">{state.agentsFile.path}</span> ({state.agentsFile.lines}{' '}
+            lines)
+          </p>
+        )}
       </div>
 
       <div className={cardClass}>

@@ -90,7 +90,7 @@ test('apply refuses a stale preview (409 path)', () => {
 test('script toggle renames and asks for a plain restart', () => {
   const r = comfy.preview({ target: 'script', name: '20-SageAttention2.sh', enabled: true });
   assert.deepStrictEqual(r.response.diff, []);
-  assert.match(r.response.summary, /Renommage/);
+  assert.match(r.response.summary, /Renaming/);
   assert.strictEqual(r.response.restart.kind, 'restart');
   assert.strictEqual(r.response.restart.command, null);
   assert.ok(r.response.warnings.some((w) => w.includes('-std=c++17')));
@@ -98,10 +98,12 @@ test('script toggle renames and asks for a plain restart', () => {
   assert.ok(fs.existsSync(path.join(DIR, 'userscripts_dir', '20-SageAttention2.sh')));
 });
 
-test('facts feed the 3 rules and nothing else', async () => {
-  const f = { gpuClockCapSet: false, vmSwappiness: 60, comfyui: await comfy.facts() };
+test('facts feed the host/comfy rules and nothing else', async () => {
+  // opencode is absent from these facts, so its two rules must stay silent —
+  // that is what proves they are gated on their own facts and not always-on.
+  const f = { gpuClockCapSet: false, vmSwappiness: 60, comfyui: await comfy.facts(), opencode: null };
   const rules = require('./rules');
-  assert.strictEqual(rules.length, 3);
+  assert.strictEqual(rules.length, 5);
   assert.ok(!JSON.stringify(rules.map((r) => [r.title, r.why])).match(/CUDA_CACHE_MAXSIZE|NCCL_P2P_DISABLE/));
   // 20 was just enabled by the previous test, so the attention rule needs the pytorch flag restored
   f.comfyui.flags = ['--use-pytorch-cross-attention'];

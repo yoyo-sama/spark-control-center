@@ -16,6 +16,7 @@ const { getContainerListeningPorts } = require('./hostports');
 const gb10Router = require('./gb10');
 const { router: appsRouter } = require('./apps');
 const { router: insightsRouter } = require('./insights');
+const { router: skillsRouter } = require('./skills');
 
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -454,6 +455,7 @@ setInterval(() => {
 app.use('/api/gb10', gb10Router);
 app.use('/api/apps', appsRouter);
 app.use('/api/insights', insightsRouter);
+app.use('/api/skills', skillsRouter);
 
 // JSON 404 for unknown API routes
 app.use('/api', (req, res) => {
