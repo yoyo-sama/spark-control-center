@@ -3,3 +3,6 @@ dist/
 .env
 *.log
 opencode.json
+
+__pycache__/
+*.pyc

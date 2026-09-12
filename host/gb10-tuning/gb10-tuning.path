@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch GB10 tuning desired state for changes
+
+[Path]
+PathChanged=/etc/gb10-tuning/state.json
+Unit=gb10-tuning.service
+
+[Install]
+WantedBy=paths.target

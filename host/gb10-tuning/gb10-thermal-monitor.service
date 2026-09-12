@@ -1,0 +1,7 @@
+[Unit]
+Description=GB10 thermal monitor
+
+[Service]
+Type=simple
+ExecStart=/home/sparks/comfyui-spark/thermal-monitor.sh
+Restart=no

@@ -4,9 +4,10 @@ services:
     restart: unless-stopped
     pid: host
     ports:
-      - "8081:3001"
+      - "127.0.0.1:8081:3001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/gb10-tuning:/etc/gb10-tuning
     environment:
       - PORT=3001
     deploy:

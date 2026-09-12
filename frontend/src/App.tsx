@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ContainerDetail from './components/ContainerDetail';
 import DgxDashboard from './components/DgxDashboard';
+import Gb10 from './components/Gb10';
 import DeployModal from './components/DeployModal';
 import DeployLog from './components/DeployLog';
 import ConfirmModal from './components/ConfirmModal';
@@ -27,7 +28,7 @@ function App() {
   const [activeDeployId, setActiveDeployId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [currentView, setCurrentView] = useState<View>('gb10');
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null);
 
   const fetchContainers = async () => {
@@ -129,11 +130,13 @@ function App() {
   };
 
   const headerTitle =
-    currentView === 'dashboard'
-      ? 'Dashboard'
-      : currentView === 'dgx'
-        ? 'DGX Dashboard'
-        : containers.find((c) => c.id === selectedContainerId)?.name ?? 'Container detail';
+    currentView === 'gb10'
+      ? 'GB10'
+      : currentView === 'dashboard'
+        ? 'Containers'
+        : currentView === 'dgx'
+          ? 'DGX Dashboard'
+          : containers.find((c) => c.id === selectedContainerId)?.name ?? 'Container detail';
 
   return (
     <div className="flex h-screen bg-base text-fg font-sans">
@@ -143,13 +146,15 @@ function App() {
         <header className="sticky top-0 z-40 h-16 shrink-0 px-6 border-b border-line bg-base/80 backdrop-blur flex justify-between items-center">
           <h1 className="text-base font-semibold tracking-tight">{headerTitle}</h1>
           <div className="flex gap-2.5 items-center">
-            <button
-              onClick={() => setShowDeployModal(true)}
-              className="px-3.5 h-9 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:opacity-90 transition-opacity inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/30"
-            >
-              <Rocket size={14} strokeWidth={2.2} />
-              Deploy
-            </button>
+            {currentView === 'gb10' || currentView === 'dgx' ? null : (
+              <button
+                onClick={() => setShowDeployModal(true)}
+                className="px-3.5 h-9 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:opacity-90 transition-opacity inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/30"
+              >
+                <Rocket size={14} strokeWidth={2.2} />
+                Deploy
+              </button>
+            )}
             <button
               onClick={handleRefresh}
               disabled={refreshing}
@@ -171,6 +176,8 @@ function App() {
               {error}
             </div>
           )}
+
+          {currentView === 'gb10' && <Gb10 />}
 
           {currentView === 'dashboard' && (
             <Dashboard

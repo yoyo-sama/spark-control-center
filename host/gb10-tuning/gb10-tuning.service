@@ -1,0 +1,9 @@
+[Unit]
+Description=Apply GB10 tuning desired state
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gb10-apply.py
+
+[Install]
+WantedBy=multi-user.target

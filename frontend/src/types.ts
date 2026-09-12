@@ -88,4 +88,61 @@ export interface ContainerHistoryPoint {
   [key: string]: number | string;
 }
 
-export type View = 'dashboard' | 'container-detail' | 'dgx';
+export type View = 'gb10' | 'dashboard' | 'container-detail' | 'dgx';
+
+export type Gb10SettingKey =
+  | 'gpuClockLimitMhz'
+  | 'gpuPersistenceMode'
+  | 'swapDisabled'
+  | 'vmSwappiness'
+  | 'thermalMonitor';
+
+export type Gb10SettingState = 'ok' | 'pending' | 'failed' | 'skipped' | 'diverged' | 'unverified';
+
+export interface Gb10Status {
+  state: Gb10SettingState;
+  message: string;
+}
+
+export interface Gb10Desired {
+  version: number;
+  updatedAt: string;
+  gpuClockLimitMhz: number | null;
+  gpuPersistenceMode: boolean;
+  swapDisabled: boolean;
+  vmSwappiness: number;
+  thermalMonitor: boolean;
+}
+
+export interface Gb10Actual {
+  gpuPersistenceMode: boolean | null;
+  gpuClockCurrentMhz: number | null;
+  gpuClockApplicationsMhz: number | null;
+  gpuClockMaxMhz: number | null;
+  gpuTemperatureCelsius: number | null;
+  gpuPowerDrawWatts: number | null;
+  swapTotalBytes: number | null;
+  swapUsedBytes: number | null;
+  vmSwappiness: number | null;
+  thermalMonitor: boolean | null;
+}
+
+export interface Gb10EnvAdviceItem {
+  name: string;
+  expected?: string;
+  containers: string[];
+}
+
+export interface Gb10EnvAdvice {
+  recommended: Gb10EnvAdviceItem[];
+  banned: Gb10EnvAdviceItem[];
+}
+
+export interface Gb10State {
+  desired: Gb10Desired;
+  actual: Gb10Actual;
+  status: Record<Gb10SettingKey, Gb10Status>;
+  lastApply: unknown;
+  pipelineInstalled: boolean;
+  envAdvice: Gb10EnvAdvice;
+}

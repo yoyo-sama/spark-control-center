@@ -1,8 +1,8 @@
-# Docker Manager
+# Spark Control Center
 
 [![en](https://img.shields.io/badge/lang-en-blue)](README.md) [![fr](https://img.shields.io/badge/lang-fr-red)](README.fr.md)
 
-Web-based Docker manager: monitor and control your containers from the browser — system dashboard, interactive terminal, one-click GitHub deploy.
+Spark Control Center is a web-based Docker manager: monitor and control your containers from the browser — system dashboard, interactive terminal, one-click GitHub deploy.
 
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white) ![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Node.js](https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white)
 
@@ -114,6 +114,64 @@ No configuration is required. Optional variables (through the `environment:` sec
 | `PORT` | `3001` | Internal server port (serves both the API and the frontend) |
 
 > To expose the UI on a port other than 8081, edit the `ports:` section of the `app` service (e.g. `"9090:3001"`).
+
+## GB10 tuning
+
+### The principle
+
+The container stays **unprivileged**: the app writes `/etc/gb10-tuning/state.json`, the `gb10-tuning.path` systemd unit detects the change and triggers `gb10-tuning.service` (a oneshot, running as root) which applies the settings and writes `result.json`, read back by the app to display the actual state.
+
+### Security warning
+
+The app has **no authentication** (an assumed choice for v1) and this JSON drives root-level commands — hence the bind on `127.0.0.1` and the strict allow-list validation in `apply.py`.
+
+### Install
+
+```bash
+sudo install -d -m 755 /etc/gb10-tuning
+sudo install -m 755 host/gb10-tuning/apply.py /usr/local/sbin/gb10-apply.py
+sudo install -m 644 host/gb10-tuning/gb10-tuning.path \
+                    host/gb10-tuning/gb10-tuning.service \
+                    host/gb10-tuning/gb10-thermal-monitor.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gb10-tuning.path gb10-tuning.service
+```
+
+### Uninstall
+
+```bash
+sudo systemctl disable --now gb10-tuning.path gb10-tuning.service
+sudo nvidia-smi -rgc
+```
+
+`nvidia-smi -rgc` resets the GPU to its factory clocks.
+
+### v1 settings and measured effects
+
+| Setting | Measured effect |
+|---|---|
+| Root cause of the crashes | A power spike from 14 W to 85 W triggers the over-current protection — **not** a thermal throttle |
+| Clock cap at 2100 MHz | 85 W spikes brought down to a stable 50 W, 72–79 °C, no more crashes |
+| Clock cap at 2200 MHz (variant) | −12 °C, −36% power, at a cost of 1% in decoding and 3.9% in prefill |
+| Power limit | `nvidia-smi -q -d POWER` returns `Power Limit: N/A` on this GPU — the clock cap is the **only** lever, no wattage limit is adjustable |
+| `CUDA_CACHE_MAXSIZE=4294967296` | 20 s/step → 6.6 s/step (×3) |
+
+### Swap warning
+
+`swapoff` under memory pressure can trigger an OOM kill — hence the guard rail (refuses if more than 512 MiB of swap are currently in use).
+
+### Honesty caveat
+
+Some GB10 units ignore `nvidia-smi -lgc` depending on their firmware — the UI therefore compares the desired state to the actual state and flags any divergence.
+
+### Environment variables
+
+- Recommended: `CUDA_CACHE_MAXSIZE=4294967296`, `NCCL_P2P_DISABLE=1`
+- To avoid: `CUDA_CACHE_DISABLE=1`, `PYTORCH_NO_CUDA_MEMORY_CACHING=1` (memory fragmentation and OOM)
+
+### `GB10_STATE_DIR`
+
+This environment variable overrides the state directory (both for the backend and the script), which allows testing without touching `/etc`.
 
 ## Structure
 

@@ -1,4 +1,4 @@
-import { Container, Gauge, LayoutDashboard, Moon, Sun } from 'lucide-react';
+import { Container, Cpu, Gauge, LayoutDashboard, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../lib/theme';
 import type { View } from '../types';
 
@@ -17,12 +17,23 @@ export default function Sidebar({ currentView, onViewChange }: Props) {
           <Container size={17} strokeWidth={2.2} />
         </div>
         <div className="min-w-0">
-          <h1 className="text-sm font-semibold tracking-tight leading-tight">Docker Manager</h1>
-          <p className="text-[11px] text-muted leading-tight">Local instance</p>
+          <h1 className="text-sm font-semibold tracking-tight leading-tight">Spark Control Center</h1>
+          <p className="text-[11px] text-muted leading-tight">GB10 local</p>
         </div>
       </div>
 
       <nav className="flex-1 p-3 space-y-1" aria-label="Main navigation">
+        <button
+          onClick={() => onViewChange('gb10')}
+          className={`w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
+            currentView === 'gb10'
+              ? 'bg-hover text-fg'
+              : 'text-muted hover:text-fg hover:bg-hover'
+          }`}
+        >
+          <Cpu size={16} strokeWidth={2} />
+          GB10
+        </button>
         <button
           onClick={() => onViewChange('dashboard')}
           className={`w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
@@ -32,7 +43,7 @@ export default function Sidebar({ currentView, onViewChange }: Props) {
           }`}
         >
           <LayoutDashboard size={16} strokeWidth={2} />
-          Dashboard
+          Containers
         </button>
         <button
           onClick={() => onViewChange('dgx')}
