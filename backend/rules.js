@@ -2,6 +2,12 @@
 // no rule language, no interpreter. A rule only exists here if it flags a REAL
 // problem on this machine; settings that are already correct (CUDA_CACHE_MAXSIZE,
 // NCCL_P2P_DISABLE) get no rule, so the page counts problems, not catalogue size.
+// Oxford-less list: "a", "a and b", "a, b and c".
+function nameList(names) {
+  if (names.length <= 1) return names[0] || '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 module.exports = [
   {
     id: 'gpu-clock-cap-unset',
@@ -86,5 +92,33 @@ module.exports = [
       'Install via the DGX Dashboard or apt on the host — not from this console.',
     action: null,
     detect: (f) => !!f.updates && (f.updates.total > 0 || f.updates.security > 0),
+  },
+  {
+    id: 'container-port-conflict',
+    // A `no` restart policy usually means the container was stopped on purpose;
+    // unless-stopped/always means it was meant to be up and is actually broken.
+    severity: (f) => (f.portConflicts.some((c) => c.restartPolicy !== 'no') ? 'medium' : 'low'),
+    target: 'host',
+    title: 'Containers cannot start because a port is taken',
+    // Grouped by (port, holder), and the victims split by intent: five containers blocked
+    // by one port would otherwise read as five near-identical sentences nobody finishes.
+    why: (f) =>
+      [...f.portConflicts
+        .reduce((acc, c) => {
+          const key = `${c.port}|${c.heldBy}`;
+          if (!acc.has(key)) acc.set(key, { port: c.port, heldBy: c.heldBy, wanted: [], parked: [] });
+          acc.get(key)[c.restartPolicy === 'no' ? 'parked' : 'wanted'].push(c.name);
+          return acc;
+        }, new Map())
+        .values()]
+        .map(({ port, heldBy, wanted, parked }) => {
+          const parts = [`Host port ${port} is held by ${heldBy}.`];
+          if (wanted.length) parts.push(`${nameList(wanted)} ${wanted.length > 1 ? 'are' : 'is'} set to restart automatically and cannot start.`);
+          if (parked.length) parts.push(`${nameList(parked)} ${parked.length > 1 ? 'are' : 'is'} stopped with restart policy "no", so possibly parked on purpose.`);
+          return parts.join(' ');
+        })
+        .join(' '),
+    action: null,
+    detect: (f) => !!f.portConflicts && f.portConflicts.length > 0,
   },
 ];
