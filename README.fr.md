@@ -2,19 +2,40 @@
 
 [![en](https://img.shields.io/badge/lang-en-red)](README.md) [![fr](https://img.shields.io/badge/lang-fr-blue)](README.fr.md)
 
-Spark Control Center est un gestionnaire Docker web : surveillez et pilotez vos conteneurs depuis le navigateur — dashboard système, terminal interactif, déploiement direct depuis GitHub.
+Spark Control Center est un portail web de contrôle pour une station DGX Spark (puce GB10) : réglage de la machine, configuration des apps IA qui tournent dessus, et gestion de ses conteneurs Docker, le tout depuis le navigateur.
 
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white) ![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Node.js](https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white)
 
 ## Fonctionnalités
 
+La barre latérale comporte quatre sections :
+
+- **GB10** — la vue d'accueil, étiquetée dynamiquement avec le nom de la machine détectée. Réglage GPU et thermique :
+  - **Réglages** : plafond d'horloge GPU, mode persistance, swap, `vm.swappiness`, monitoring thermique
+  - **Un interrupteur ne ment jamais** : chaque réglage désiré est comparé à ce que la machine rapporte réellement, avec un état explicite par réglage (`ok`, `pending`, `failed`, `skipped`, `diverged`, `unverified`, `unset`) — certains firmwares GB10 ignorent silencieusement `nvidia-smi -lgc`, et une interface qui se contenterait de renvoyer la demande mentirait
+  - **Uniquement ce que vous posez** : les réglages auxquels l'utilisateur n'a pas touché ne sont pas persistés
+  - **Conteneur non privilégié** : il ne fait qu'écrire un JSON d'état désiré qu'un oneshot systemd root valide contre une liste blanche stricte et applique (détails plus bas sous « Réglages GB10 »)
+- **Apps** — lit et modifie chirurgicalement la configuration des outils IA installés sur l'hôte :
+  - **ComfyUI** : les flags de ligne de commande de son `compose.yaml`, et ses scripts utilisateur
+  - **opencode** (`opencode.json`) : modèle par défaut, `limit.context`, compaction, chemins/urls de skills
+  - **Claude Code** : fichiers de settings, plugins, serveurs MCP, hooks — en lecture seule sauf une courte liste blanche de clés inoffensives
+  - **Pipeline d'édition** : aperçu → diff ligne à ligne → avertissements → confirmation explicite → écriture atomique préservant le propriétaire et les droits du fichier, avec un `.bak` horodaté et une vérification par hash de contenu qui refuse un aperçu si le fichier a changé entretemps. Les secrets sont masqués
+  - **Gestionnaire de skills partagés** : les mêmes skills sont chargés par opencode et par Claude Code, donc les doublons entre racines sont signalés
+  - **Moteur d'insights** : signale les vrais problèmes de cette machine (les règles vivent dans `backend/rules.js`) plutôt que de lister un catalogue
+- **Conteneurs**
+  - **Liste des conteneurs** : statut, image, politique de redémarrage, **répertoire de lancement** (bind mounts hôtes + WorkingDir) et **lien direct vers l'app** pour chaque port TCP publié
+  - **Auto-détection des ports host-network** : les apps en `network_mode: host` (sans ports publiés) voient leurs ports d'écoute détectés via `/proc` (croisement inodes sockets ↔ tables TCP)
+  - **Détail conteneur** : stats CPU/RAM (mémoire CPU + VRAM GPU), réseau, graphiques d'historique, configuration (commande, ports, montages)
+  - **Terminal interactif** : shell in-browser (xterm.js + WebSocket) dans n'importe quel conteneur actif, avec détection automatique bash/sh et redimensionnement
+  - **Déploiement GitHub** : clone → build → run d'un dépôt directement depuis l'UI, avec logs en direct (SSE), timeout et nettoyage automatique
+  - **Actions** : start / stop / restart / delete avec confirmation
+- **DGX Dashboard** — le propre dashboard NVIDIA de la machine, embarqué
+
+En dehors de cette navigation :
+
 - **Dashboard système** : CPU, mémoire, disque, GPU NVIDIA (via `nvidia-smi`), compteurs conteneurs/images/volumes, graphiques temps réel avec dégradés
-- **Liste des conteneurs** : statut, image, politique de redémarrage, **répertoire de lancement** (bind mounts hôtes + WorkingDir) et **lien direct vers l'app** pour chaque port TCP publié
-- **Auto-détection des ports host-network** : les apps en `network_mode: host` (sans port publié) voient leurs ports d'écoute détectés via `/proc` (croisement inodes sockets ↔ tables TCP)
-- **Détail conteneur** : stats CPU/RAM (mémoire CPU + GPU VRAM), réseau, graphiques d'historique, configuration (commande, ports, mounts)
-- **Terminal interactif** : shell in-browser (xterm.js + WebSocket) dans n'importe quel conteneur actif, avec détection automatique bash/sh et redimensionnement
-- **Déploiement GitHub** : clone → build → run d'un repo directement depuis l'UI, avec logs en direct (SSE), timeout et nettoyage automatiques
-- **Actions** : start / stop / restart / delete avec confirmation
+- **Mises à jour système** : lues depuis apt — compteurs et liste par paquet, en lecture seule (l'installation reste sur l'hôte)
+- **Détection automatique de l'identité machine** : vendeur, modèle, BIOS, numéros de série, plateforme DGX, puce, OS, interfaces réseau — ce qui rend l'app portable sur une autre DGX Spark quelle que soit sa marque, via la seule variable `SPARK_HOME`
 - **Thème sombre / clair** : interface monochrome moderne (police Inter, icônes Lucide, JetBrains Mono pour les données techniques), bascule persistée et défaut selon la préférence système
 
 ## Stack
@@ -37,8 +58,8 @@ Spark Control Center est un gestionnaire Docker web : surveillez et pilotez vos 
 
 ```bash
 # 1. Cloner le repo
-git clone https://github.com/yoyo-sama/docker-manager.git
-cd docker-manager
+git clone https://github.com/yoyo-sama/spark-control-center.git
+cd spark-control-center
 
 # 2. Construire et démarrer (aucune variable d'environnement requise)
 docker compose up -d --build
@@ -69,7 +90,7 @@ Tout le reste fonctionne normalement ; la section GPUs reste simplement vide.
 Les conteneurs ne se mettent jamais à jour eux-mêmes : ils continuent de tourner sur l'image avec laquelle ils ont été démarrés. Pour mettre à jour une installation existante :
 
 ```bash
-cd docker-manager
+cd spark-control-center
 
 # 1. Récupérer le dernier code
 git pull
@@ -214,8 +235,17 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 ```
 ├── backend/
 │   ├── index.js        # API REST, WebSocket exec, déploiement GitHub, fichiers statiques
+│   ├── gb10.js         # État désiré/réel GB10
+│   ├── apps.js         # Registre des apps + pipeline d'édition
+│   ├── skills.js       # Gestionnaire de skills partagés
+│   ├── insights.js     # Moteur d'insights
+│   ├── rules.js        # Catalogue de règles d'insights
+│   ├── machine.js      # Identité machine
+│   ├── updates.js      # Mises à jour système
 │   ├── hostports.js    # Détection des ports d'écoute (conteneurs host-network)
 │   ├── metrics.js      # Métriques système / GPU / stats conteneurs
+│   ├── *.test.js       # Suites de tests (node --test)
+│   └── fixtures/       # Fixtures de test
 ├── frontend/
 │   ├── src/
 │   │   ├── components/ # Dashboard, ContainerDetail, Terminal, DeployModal…
@@ -223,6 +253,9 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 │   │   ├── types.ts
 │   │   └── App.tsx
 │   └── vite.config.ts  # Proxy /api pour le dev local
+├── host/
+│   ├── gb10-tuning/    # apply.py + son test, unités systemd .path/.service
+│   └── dgx-updates/    # Script de snapshot, service et timer systemd
 ├── Dockerfile          # Image unique multi-stage (build frontend + backend)
 └── docker-compose.yml
 ```
@@ -239,6 +272,20 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 | GET | `/api/system` | Métriques système + GPU |
 | POST | `/api/deploy/github` | Déploiement d'un repo GitHub |
 | GET | `/api/events/deploy/:id` | Logs de déploiement (SSE) |
+| GET | `/api/gb10/state` | État désiré + réel GB10 |
+| PUT | `/api/gb10/state` | Modifier l'état désiré GB10 |
+| POST | `/api/gb10/reapply` | Redéclencher l'application côté hôte |
+| GET | `/api/apps` | Résumé du registre des apps |
+| GET | `/api/apps/:id` | Détail d'une app (détection, facts) |
+| POST | `/api/apps/:id/preview` | Aperçu d'une modification de config (diff + avertissements) |
+| POST | `/api/apps/:id/apply` | Appliquer une modification prévisualisée |
+| GET | `/api/skills` | Liste des skills sur toutes les racines |
+| GET | `/api/skills/:name` | Détail d'un skill |
+| POST | `/api/skills/preview` | Aperçu d'un toggle/import de skill |
+| POST | `/api/skills/apply` | Appliquer une modification de skill prévisualisée |
+| GET | `/api/insights` | Résultats du moteur d'insights |
+| GET | `/api/machine` | Identité machine |
+| GET | `/api/updates` | Mises à jour système (apt) |
 | WS | `/api/exec/:id` | Terminal interactif |
 
 ## Développement
@@ -253,6 +300,13 @@ cd backend && npm install && npm start
 cd frontend && npm install && npm run dev
 ```
 
+Les tests ne demandent aucune installation, les fixtures sont dans le repo :
+
+```bash
+cd backend && node --test              # suite backend
+python3 host/gb10-tuning/test_apply.py # script d'apply côté hôte
+```
+
 ## Note sécurité
 
-L'application n'a **pas d'authentification** et le terminal donne un shell dans les conteneurs. À réserver à un réseau local ou un environnement de confiance ; placez-la derrière un proxy avec authentification si exposée.
+L'application n'a **pas d'authentification** et le terminal donne un shell dans les conteneurs. L'app se lie uniquement à `127.0.0.1`, les requêtes cross-origin sont refusées (aucun en-tête CORS n'est envoyé), et les upgrades WebSocket dont l'`Origin` ne correspond pas à l'hôte du serveur sont rejetées — un navigateur n'applique pas de CORS aux WebSockets, donc n'importe quelle page visitée aurait sinon pu ouvrir un shell dans un conteneur. Rien de tout cela n'est de l'authentification : à réserver à un réseau local ou un environnement de confiance ; placez-la derrière un proxy avec authentification si elle doit sortir de la machine.

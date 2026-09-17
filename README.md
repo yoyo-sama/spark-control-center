@@ -2,19 +2,40 @@
 
 [![en](https://img.shields.io/badge/lang-en-blue)](README.md) [![fr](https://img.shields.io/badge/lang-fr-red)](README.fr.md)
 
-Spark Control Center is a web-based Docker manager: monitor and control your containers from the browser — system dashboard, interactive terminal, one-click GitHub deploy.
+Spark Control Center is a web control portal for a DGX Spark workstation (GB10 chip): tune the machine, configure the AI apps running on it, and manage its Docker containers, all from the browser.
 
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white) ![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Node.js](https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white)
 
 ## Features
 
+The sidebar has four sections:
+
+- **GB10** — the home view, labelled dynamically with the detected machine name. GPU and thermal tuning:
+  - **Settings**: GPU clock cap, persistence mode, swap, `vm.swappiness`, thermal monitor
+  - **A switch never lies**: every desired setting is compared against what the machine actually reports, with an explicit per-setting state (`ok`, `pending`, `failed`, `skipped`, `diverged`, `unverified`, `unset`) — some GB10 firmwares silently ignore `nvidia-smi -lgc`, and a UI that just echoed the request back would be lying
+  - **Only what you set**: settings the user never touched are not persisted
+  - **Unprivileged container**: it only writes a desired-state JSON that a root systemd oneshot validates against a strict allow-list and applies (details under "GB10 tuning" below)
+- **Apps** — reads and surgically edits the configuration of the AI tools installed on the host:
+  - **ComfyUI**: the command-line flags in its `compose.yaml`, and its user scripts
+  - **opencode** (`opencode.json`): default model, `limit.context`, compaction, skill paths/urls
+  - **Claude Code**: settings files, plugins, MCP servers, hooks — read-only except a short whitelist of harmless keys
+  - **Edit pipeline**: preview → line diff → warnings → explicit confirmation → atomic write preserving the file's owner and mode, with a timestamped `.bak` and a content-hash check that refuses a preview if the file changed meanwhile. Secrets are masked
+  - **Shared skills manager**: the same skills are loaded by both opencode and Claude Code, so duplicates across roots are flagged
+  - **Insight engine**: flags the real problems of this machine (rules live in `backend/rules.js`) rather than listing a catalogue
+- **Containers**
+  - **Container list**: status, image, restart policy, **launch directory** (host bind mounts + WorkingDir) and a **direct link to the app** for every published TCP port
+  - **Host-network port auto-detection**: apps running with `network_mode: host` (no published ports) get their listening ports detected through `/proc` (socket inodes ↔ TCP tables matching)
+  - **Container detail**: CPU/RAM stats (CPU memory + GPU VRAM), network, history charts, configuration (command, ports, mounts)
+  - **Interactive terminal**: in-browser shell (xterm.js + WebSocket) in any running container, with automatic bash/sh detection and resizing
+  - **GitHub deploy**: clone → build → run a repository straight from the UI, with live logs (SSE), timeout and automatic cleanup
+  - **Actions**: start / stop / restart / delete with confirmation
+- **DGX Dashboard** — the machine's own NVIDIA dashboard, embedded
+
+Outside that navigation:
+
 - **System dashboard**: CPU, memory, disk, NVIDIA GPUs (via `nvidia-smi`), container/image/volume counters, real-time gradient charts
-- **Container list**: status, image, restart policy, **launch directory** (host bind mounts + WorkingDir) and a **direct link to the app** for every published TCP port
-- **Host-network port auto-detection**: apps running with `network_mode: host` (no published ports) get their listening ports detected through `/proc` (socket inodes ↔ TCP tables matching)
-- **Container detail**: CPU/RAM stats (CPU memory + GPU VRAM), network, history charts, configuration (command, ports, mounts)
-- **Interactive terminal**: in-browser shell (xterm.js + WebSocket) in any running container, with automatic bash/sh detection and resizing
-- **GitHub deploy**: clone → build → run a repository straight from the UI, with live logs (SSE), timeout and automatic cleanup
-- **Actions**: start / stop / restart / delete with confirmation
+- **System updates**: read from apt — counts and the per-package list, read-only (installing stays on the host)
+- **Automatic machine identity detection**: vendor, model, BIOS, serials, DGX platform, chip, OS, network interfaces — what makes the app portable to another DGX Spark whatever its brand, via the single `SPARK_HOME` variable
 - **Dark / light theme**: modern monochrome interface (Inter font, Lucide icons, JetBrains Mono for technical data), persisted toggle defaulting to system preference
 
 ## Stack
@@ -37,8 +58,8 @@ Spark Control Center is a web-based Docker manager: monitor and control your con
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yoyo-sama/docker-manager.git
-cd docker-manager
+git clone https://github.com/yoyo-sama/spark-control-center.git
+cd spark-control-center
 
 # 2. Build and start (no environment variables required)
 docker compose up -d --build
@@ -69,7 +90,7 @@ Everything else works normally; the GPUs section simply stays empty.
 Containers never update themselves: they keep running the image they were started from. To update an existing installation:
 
 ```bash
-cd docker-manager
+cd spark-control-center
 
 # 1. Fetch the latest code
 git pull
@@ -214,8 +235,17 @@ Without the timer installed, `/api/updates` still returns 200 with `pipelineInst
 ```
 ├── backend/
 │   ├── index.js        # REST API, WebSocket exec, GitHub deploy, static serving
+│   ├── gb10.js         # GB10 desired/actual state
+│   ├── apps.js         # App registry + the edit pipeline
+│   ├── skills.js       # Shared skills manager
+│   ├── insights.js     # Insight engine
+│   ├── rules.js        # Insight rule catalogue
+│   ├── machine.js      # Machine identity
+│   ├── updates.js      # System updates
 │   ├── hostports.js    # Listening port detection (host-network containers)
 │   ├── metrics.js      # System / GPU / container stats metrics
+│   ├── *.test.js       # Test suites (node --test)
+│   └── fixtures/       # Test fixtures
 ├── frontend/
 │   ├── src/
 │   │   ├── components/ # Dashboard, ContainerDetail, Terminal, DeployModal…
@@ -223,6 +253,9 @@ Without the timer installed, `/api/updates` still returns 200 with `pipelineInst
 │   │   ├── types.ts
 │   │   └── App.tsx
 │   └── vite.config.ts  # /api proxy for local development
+├── host/
+│   ├── gb10-tuning/    # apply.py + its test, systemd .path/.service units
+│   └── dgx-updates/    # Snapshot script, systemd service and timer
 ├── Dockerfile          # Single multi-stage image (frontend build + backend)
 └── docker-compose.yml
 ```
@@ -239,6 +272,20 @@ Without the timer installed, `/api/updates` still returns 200 with `pipelineInst
 | GET | `/api/system` | System + GPU metrics |
 | POST | `/api/deploy/github` | GitHub repository deploy |
 | GET | `/api/events/deploy/:id` | Deploy logs (SSE) |
+| GET | `/api/gb10/state` | GB10 desired + actual state |
+| PUT | `/api/gb10/state` | Update the desired GB10 state |
+| POST | `/api/gb10/reapply` | Re-trigger the host-side apply |
+| GET | `/api/apps` | App registry summary |
+| GET | `/api/apps/:id` | App detail (detection, facts) |
+| POST | `/api/apps/:id/preview` | Preview an app config edit (diff + warnings) |
+| POST | `/api/apps/:id/apply` | Apply a previewed edit |
+| GET | `/api/skills` | Skills list across roots |
+| GET | `/api/skills/:name` | Skill detail |
+| POST | `/api/skills/preview` | Preview a skill toggle/import |
+| POST | `/api/skills/apply` | Apply a previewed skill change |
+| GET | `/api/insights` | Insight engine findings |
+| GET | `/api/machine` | Machine identity |
+| GET | `/api/updates` | System updates (apt) |
 | WS | `/api/exec/:id` | Interactive terminal |
 
 ## Development
@@ -253,6 +300,13 @@ cd backend && npm install && npm start
 cd frontend && npm install && npm run dev
 ```
 
+Tests need no setup, the fixtures are in the repo:
+
+```bash
+cd backend && node --test              # backend suite
+python3 host/gb10-tuning/test_apply.py # root-side apply script
+```
+
 ## Security note
 
-The application has **no authentication** and the terminal grants a shell inside containers. Intended for a local network or trusted environment; put it behind an authenticating proxy if exposed.
+The application has **no authentication** and the terminal grants a shell inside containers. The app binds to `127.0.0.1` only, cross-origin requests are refused (no CORS header is sent), and WebSocket upgrades whose `Origin` does not match the server's own host are rejected — a browser applies no CORS to WebSockets, so any page the user visited could otherwise have opened a shell in a container. None of this is authentication: intended for a local network or trusted environment; put it behind an authenticating proxy if it must leave the machine.
