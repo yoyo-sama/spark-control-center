@@ -1,5 +1,4 @@
 const express = require('express');
-const cors = require('cors');
 const compression = require('compression');
 const http = require('http');
 const { WebSocketServer } = require('ws');
@@ -23,7 +22,6 @@ const { router: updatesRouter } = require('./updates');
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
-app.use(cors());
 app.use(express.json());
 app.use(compression());
 
@@ -272,6 +270,19 @@ app.post('/api/deploy/github', async (req, res) => {
   const { repo, branch = 'main', name, ports, env } = req.body;
   if (!repo) return res.status(400).json({ error: 'repo URL is required' });
 
+  // repo/branch/name reach `git clone` / `docker run` argv directly (no shell involved) —
+  // a leading '-' would be parsed as an option (git --upload-pack=<cmd>, docker -v /:/mnt),
+  // and git also honors ext::<cmd> transport URLs. Guard against argv injection here.
+  if (!/^(https:\/\/|git@)[^\s]+$/.test(repo)) {
+    return res.status(400).json({ error: 'repo must be an https:// or git@ URL' });
+  }
+  if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-')) {
+    return res.status(400).json({ error: 'invalid branch name' });
+  }
+  if (name && !/^[a-z0-9][a-z0-9_.-]*$/.test(name)) {
+    return res.status(400).json({ error: 'name must start with a lowercase letter or digit and hold only [a-z0-9_.-]' });
+  }
+
   const deployId = uuidv4();
   const containerName = name || `deploy-${deployId.substring(0, 8)}`;
   const imageName = containerName;
@@ -517,6 +528,14 @@ server.on('upgrade', async (req, socket, head) => {
   const url = req.url || '';
   const match = url.match(/^\/api\/exec\/([^/?]+)/);
   if (!match) {
+    socket.destroy();
+    return;
+  }
+
+  // Browsers do not apply CORS to WebSockets: without this check any page the user
+  // visits could open a shell in any container. Absent Origin = non-browser client.
+  const origin = req.headers.origin;
+  if (origin && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`) {
     socket.destroy();
     return;
   }

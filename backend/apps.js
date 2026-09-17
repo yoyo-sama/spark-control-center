@@ -13,6 +13,8 @@ const router = express.Router();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
 const SECRET_KEY_RE = /TOKEN|KEY|SECRET|PASSWORD|AUTH/i;
+// `--api-key=sk-...` / `apiKey=sk-...` inside an args array: keep the flag, mask the value.
+const SECRET_KV_RE = /^(-*[^=]*(?:TOKEN|KEY|SECRET|PASSWORD|AUTH)[^=]*=).+$/i;
 
 // Single masking point: used by the API responses AND by the facts feeding rules.js.
 // Recursive: settingsglm.json hides a real ANTHROPIC_AUTH_TOKEN one level down, in `env`.
@@ -20,10 +22,25 @@ function mask(env) {
   const out = {};
   for (const [k, v] of Object.entries(env)) {
     if (SECRET_KEY_RE.test(k)) out[k] = '***';
-    else if (v && typeof v === 'object' && !Array.isArray(v)) out[k] = mask(v);
+    else if (Array.isArray(v)) out[k] = maskArray(v);
+    else if (v && typeof v === 'object') out[k] = mask(v);
     else out[k] = v;
   }
   return out;
+}
+
+// MCP server `args` arrays carry secrets two ways: inline (`--api-key=sk-...`) or as a
+// flag/value pair (`--token`, `abc123`). Mask both; leave plain flags/values untouched.
+function maskArray(arr) {
+  return arr.map((v, i) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) return mask(v);
+    if (typeof v !== 'string') return v;
+    const kv = v.match(SECRET_KV_RE);
+    if (kv) return `${kv[1]}***`;
+    const prev = arr[i - 1];
+    if (typeof prev === 'string' && SECRET_KEY_RE.test(prev) && !v.startsWith('-')) return '***';
+    return v;
+  });
 }
 
 const SAGE_NOTE =

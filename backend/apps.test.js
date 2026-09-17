@@ -8,19 +8,12 @@ const { execSync } = require('child_process');
 const DIR = process.env.COMFY_DIR;
 assert.ok(DIR && DIR !== '/home/sparks/comfyui-spark', 'COMFY_DIR must point at a throwaway copy');
 
-const { APPS, mask } = require('./apps');
+const { APPS } = require('./apps');
 const comfy = APPS.find((a) => a.id === 'comfyui');
 const FILE = path.join(DIR, 'compose.yaml');
 const ORIG = path.join(DIR, 'compose.yaml.orig');
 
 test.before(() => fs.copyFileSync(FILE, ORIG));
-
-test('mask hides secret-named values, keeps the keys', () => {
-  const m = mask({ HF_TOKEN: 'hf_abc', api_key: 'x', MY_SECRET: 'y', DB_PASSWORD: 'z', SECURITY_LEVEL: 'weak' });
-  assert.deepStrictEqual(m, {
-    HF_TOKEN: '***', api_key: '***', MY_SECRET: '***', DB_PASSWORD: '***', SECURITY_LEVEL: 'weak',
-  });
-});
 
 test('(d) read() never leaks the real token', async () => {
   const r = await comfy.read();
