@@ -13,7 +13,7 @@ RUN npm run build
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /tmp/docker-manager && chmod 777 /tmp/docker-manager
+RUN mkdir -p /tmp/spark-control-center
 
 WORKDIR /app
 

@@ -27,7 +27,7 @@ app.use(compression());
 
 const deploys = new Map();
 
-const DEPLOYS_DIR = '/tmp/docker-manager';
+const DEPLOYS_DIR = '/tmp/spark-control-center';
 const DEPLOY_TIMEOUT = 5 * 60 * 1000; // 5 min
 
 function formatPorts(ports) {

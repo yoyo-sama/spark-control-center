@@ -239,7 +239,7 @@ codage, et l'argument pour vLLM le jour où ce sera gênant.
 
 L'API renvoyait `ollama.installed: []` et tous les modèles en « non servi » **en production seulement** :
 le backend interrogeait `http://localhost:11434` depuis l'intérieur du conteneur, où `localhost` désigne le
-conteneur lui-même. `ollama-api` vit sur le réseau `bridge`, docker-manager sur `docker-manager_default` :
+conteneur lui-même. `ollama-api` vit sur le réseau `bridge`, spark-control-center sur `spark-control-center_default` :
 ni `localhost`, ni le nom du conteneur, ni son IP directe ne fonctionnent — seule la passerelle hôte répond.
 Conséquence : la règle `opencode-model-drift` criait au loup. Le lot n'a pas pu le voir, ayant testé en
 lançant le backend sur l'hôte. Corrigé par `extra_hosts: host.docker.internal:host-gateway` + `OLLAMA_URL`
