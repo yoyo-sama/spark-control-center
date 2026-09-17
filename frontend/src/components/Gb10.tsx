@@ -407,8 +407,8 @@ export default function Gb10({
                 Logs GPU temperature, power draw and clock speed, along with RAM and swap, every 5 seconds
                 to a log file. Purely diagnostic, no effect on performance — useful because the machine
                 produces almost no usable error output when it freezes, so this log is often the only
-                post-mortem trace. Runs the existing script at{' '}
-                <code className="font-mono">/home/sparks/comfyui-spark/thermal-monitor.sh</code>.
+                post-mortem trace. Runs the script configured in the{' '}
+                <code className="font-mono">gb10-thermal-monitor</code> systemd unit.
               </p>
             </SettingCard>
           </div>

@@ -35,7 +35,7 @@ Outside that navigation:
 
 - **System dashboard**: CPU, memory, disk, NVIDIA GPUs (via `nvidia-smi`), container/image/volume counters, real-time gradient charts
 - **System updates**: read from apt — counts and the per-package list, read-only (installing stays on the host)
-- **Automatic machine identity detection**: vendor, model, BIOS, serials, DGX platform, chip, OS, network interfaces — what makes the app portable to another DGX Spark whatever its brand, via the single `SPARK_HOME` variable
+- **Automatic machine identity detection**: vendor, model, BIOS, serials, DGX platform, chip, OS, network interfaces — what makes the app portable to another DGX Spark whatever its brand — the home directory is auto-detected, the `SPARK_HOME` variable is only an override
 - **Dark / light theme**: modern monochrome interface (Inter font, Lucide icons, JetBrains Mono for technical data), persisted toggle defaulting to system preference
 
 ## Stack
@@ -157,6 +157,8 @@ sudo install -m 644 host/gb10-tuning/gb10-tuning.path \
 sudo systemctl daemon-reload
 sudo systemctl enable --now gb10-tuning.path gb10-tuning.service
 ```
+
+`gb10-thermal-monitor.service` points at `thermal-monitor.sh` through an absolute path: systemd does not expand `$HOME`, so adjust that `ExecStart=` line to this machine before installing the unit.
 
 ### Uninstall
 

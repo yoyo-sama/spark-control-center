@@ -62,7 +62,7 @@ const CMDLINE_KEY = 'COMFY_CMDLINE_EXTRA';
 // ---------- ComfyUI ----------
 
 function comfyDir() {
-  return process.env.COMFY_DIR || '/home/sparks/comfyui-spark';
+  return process.env.COMFY_DIR || path.join(os.homedir(), 'comfyui-spark');
 }
 function composeFile() {
   return path.join(comfyDir(), 'compose.yaml');
@@ -283,7 +283,7 @@ function applyPlan(plan) {
 // ---------- opencode ----------
 
 function opencodeDir() {
-  return process.env.OPENCODE_DIR || '/home/sparks/.config/opencode';
+  return process.env.OPENCODE_DIR || path.join(os.homedir(), '.config', 'opencode');
 }
 function opencodeConfigFile() {
   return path.join(opencodeDir(), 'opencode.json');
@@ -530,7 +530,7 @@ async function previewOpencode(body) {
 // ---------- claude code ----------
 
 function claudeDir() {
-  return process.env.CLAUDE_DIR || '/home/sparks/.claude';
+  return process.env.CLAUDE_DIR || path.join(os.homedir(), '.claude');
 }
 
 function detectClaudeCode() {

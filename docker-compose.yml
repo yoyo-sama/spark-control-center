@@ -1,6 +1,10 @@
 # SPARK_HOME : répertoire personnel de l'utilisateur dont on gère les outils.
-# Défaut /home/sparks pour cette machine ; sur une autre installation, poser
-# SPARK_HOME dans un fichier .env à côté de ce compose (voir .env.example).
+# Détecté automatiquement : par défaut le $HOME de l'utilisateur qui lance le
+# compose, donc rien à régler sur une installation neuve. Poser SPARK_HOME dans
+# un fichier .env à côté de ce compose (voir .env.example) uniquement si les
+# outils à gérer appartiennent à un AUTRE utilisateur que celui qui lance le
+# compose, ou si HOME n'est pas défini dans l'environnement appelant (certains
+# contextes systemd/cron) : compose avertit alors et résout une chaîne vide.
 # Les deux côtés de chaque montage utilisent la même valeur, pour que les chemins
 # affichés dans l'interface soient les vrais chemins de l'hôte.
 services:
@@ -13,17 +17,17 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/gb10-tuning:/etc/gb10-tuning
-      - ${SPARK_HOME:-/home/sparks}/comfyui-spark:${SPARK_HOME:-/home/sparks}/comfyui-spark
-      - ${SPARK_HOME:-/home/sparks}/.config/opencode:${SPARK_HOME:-/home/sparks}/.config/opencode
-      - ${SPARK_HOME:-/home/sparks}/.claude:${SPARK_HOME:-/home/sparks}/.claude
+      - ${SPARK_HOME:-$HOME}/comfyui-spark:${SPARK_HOME:-$HOME}/comfyui-spark
+      - ${SPARK_HOME:-$HOME}/.config/opencode:${SPARK_HOME:-$HOME}/.config/opencode
+      - ${SPARK_HOME:-$HOME}/.claude:${SPARK_HOME:-$HOME}/.claude
       # Fichier unique, lecture seule : on n'y lit que les mcpServers (global + par projet),
       # le reste est l'historique des projets et ne sort jamais de l'API.
-      - ${SPARK_HOME:-/home/sparks}/.claude.json:${SPARK_HOME:-/home/sparks}/.claude.json:ro
-      - ${SPARK_HOME:-/home/sparks}/.agents:${SPARK_HOME:-/home/sparks}/.agents
+      - ${SPARK_HOME:-$HOME}/.claude.json:${SPARK_HOME:-$HOME}/.claude.json:ro
+      - ${SPARK_HOME:-$HOME}/.agents:${SPARK_HOME:-$HOME}/.agents
       # ~/.claude/skills/watch est un lien vers ce répertoire : sans ce montage
       # le lien est cassé dans le conteneur et la skill disparaît de la liste.
       # Lecture seule : on n'édite jamais une skill qui appartient à un plugin.
-      - ${SPARK_HOME:-/home/sparks}/.local/share/claude-plugins:${SPARK_HOME:-/home/sparks}/.local/share/claude-plugins:ro
+      - ${SPARK_HOME:-$HOME}/.local/share/claude-plugins:${SPARK_HOME:-$HOME}/.local/share/claude-plugins:ro
       - /sys:/host/sys:ro
       # Si /etc/dgx-release n'existe pas sur cette machine, ce montage empêche le conteneur de démarrer.
       - /etc/dgx-release:/etc/dgx-release:ro
@@ -41,15 +45,16 @@ services:
     environment:
       - PORT=3001
       - OLLAMA_URL=http://host.docker.internal:11434
-      # Le backend a des défauts en dur pour ces chemins (pratiques hors Docker) :
-      # on les pose ici explicitement pour que SPARK_HOME fasse réellement foi.
-      - COMFY_DIR=${SPARK_HOME:-/home/sparks}/comfyui-spark
-      - OPENCODE_DIR=${SPARK_HOME:-/home/sparks}/.config/opencode
-      - CLAUDE_DIR=${SPARK_HOME:-/home/sparks}/.claude
-      - CLAUDE_JSON=${SPARK_HOME:-/home/sparks}/.claude.json
-      - SKILLS_CLAUDE_DIR=${SPARK_HOME:-/home/sparks}/.claude/skills
-      - SKILLS_AGENTS_DIR=${SPARK_HOME:-/home/sparks}/.agents/skills
-      - SKILLS_OPENCODE_DIR=${SPARK_HOME:-/home/sparks}/.config/opencode/skills
+      # Hors Docker le backend retombe sur le home de l'utilisateur courant ; dans le
+      # conteneur il tourne en root, où ce home est /root et ne contient rien de tout
+      # cela. Ces variables sont donc ce qui fait réellement foi ici, pas un repli.
+      - COMFY_DIR=${SPARK_HOME:-$HOME}/comfyui-spark
+      - OPENCODE_DIR=${SPARK_HOME:-$HOME}/.config/opencode
+      - CLAUDE_DIR=${SPARK_HOME:-$HOME}/.claude
+      - CLAUDE_JSON=${SPARK_HOME:-$HOME}/.claude.json
+      - SKILLS_CLAUDE_DIR=${SPARK_HOME:-$HOME}/.claude/skills
+      - SKILLS_AGENTS_DIR=${SPARK_HOME:-$HOME}/.agents/skills
+      - SKILLS_OPENCODE_DIR=${SPARK_HOME:-$HOME}/.config/opencode/skills
     deploy:
       resources:
         reservations:

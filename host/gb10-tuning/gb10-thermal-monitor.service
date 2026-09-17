@@ -3,5 +3,6 @@ Description=GB10 thermal monitor
 
 [Service]
 Type=simple
+# systemd n'expanse pas $HOME : adapter ce chemin a la machine avant d'installer l'unite.
 ExecStart=/home/sparks/comfyui-spark/thermal-monitor.sh
 Restart=no

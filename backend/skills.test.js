@@ -16,8 +16,8 @@ const AGENTS_DIR = path.join(ROOT_TMP, 'agents-skills');
 const OPENCODE_DIR = path.join(ROOT_TMP, 'opencode-skills');
 for (const d of [CLAUDE_DIR, AGENTS_DIR, OPENCODE_DIR]) fs.mkdirSync(d, { recursive: true });
 
-assert.notStrictEqual(CLAUDE_DIR, '/home/sparks/.claude/skills');
-assert.notStrictEqual(AGENTS_DIR, '/home/sparks/.agents/skills');
+assert.notStrictEqual(CLAUDE_DIR, path.join(os.homedir(), '.claude', 'skills'));
+assert.notStrictEqual(AGENTS_DIR, path.join(os.homedir(), '.agents', 'skills'));
 process.env.SKILLS_CLAUDE_DIR = CLAUDE_DIR;
 process.env.SKILLS_AGENTS_DIR = AGENTS_DIR;
 process.env.SKILLS_OPENCODE_DIR = OPENCODE_DIR;

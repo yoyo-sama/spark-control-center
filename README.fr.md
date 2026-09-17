@@ -35,7 +35,7 @@ En dehors de cette navigation :
 
 - **Dashboard système** : CPU, mémoire, disque, GPU NVIDIA (via `nvidia-smi`), compteurs conteneurs/images/volumes, graphiques temps réel avec dégradés
 - **Mises à jour système** : lues depuis apt — compteurs et liste par paquet, en lecture seule (l'installation reste sur l'hôte)
-- **Détection automatique de l'identité machine** : vendeur, modèle, BIOS, numéros de série, plateforme DGX, puce, OS, interfaces réseau — ce qui rend l'app portable sur une autre DGX Spark quelle que soit sa marque, via la seule variable `SPARK_HOME`
+- **Détection automatique de l'identité machine** : vendeur, modèle, BIOS, numéros de série, plateforme DGX, puce, OS, interfaces réseau — ce qui rend l'app portable sur une autre DGX Spark quelle que soit sa marque — le répertoire personnel est détecté automatiquement, la variable `SPARK_HOME` n'est qu'une surcharge
 - **Thème sombre / clair** : interface monochrome moderne (police Inter, icônes Lucide, JetBrains Mono pour les données techniques), bascule persistée et défaut selon la préférence système
 
 ## Stack
@@ -157,6 +157,8 @@ sudo install -m 644 host/gb10-tuning/gb10-tuning.path \
 sudo systemctl daemon-reload
 sudo systemctl enable --now gb10-tuning.path gb10-tuning.service
 ```
+
+`gb10-thermal-monitor.service` pointe sur `thermal-monitor.sh` par un chemin absolu : systemd n'expanse pas `$HOME`, adaptez donc cette ligne `ExecStart=` à la machine avant d'installer l'unité.
 
 ### Désinstallation
 

@@ -7,6 +7,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const { writePreserving, applyPlan, sha, buildLineDiff } = require('./apps');
 
@@ -27,9 +28,9 @@ const RESTART = {
 // Precedence order: the first root holding a given name is the one the tools resolve.
 function roots() {
   return [
-    { id: 'claude', path: process.env.SKILLS_CLAUDE_DIR || '/home/sparks/.claude/skills' },
-    { id: 'agents', path: process.env.SKILLS_AGENTS_DIR || '/home/sparks/.agents/skills' },
-    { id: 'opencode', path: process.env.SKILLS_OPENCODE_DIR || '/home/sparks/.config/opencode/skills' },
+    { id: 'claude', path: process.env.SKILLS_CLAUDE_DIR || path.join(os.homedir(), '.claude', 'skills') },
+    { id: 'agents', path: process.env.SKILLS_AGENTS_DIR || path.join(os.homedir(), '.agents', 'skills') },
+    { id: 'opencode', path: process.env.SKILLS_OPENCODE_DIR || path.join(os.homedir(), '.config', 'opencode', 'skills') },
   ];
 }
 
