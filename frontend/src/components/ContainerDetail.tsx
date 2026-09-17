@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, Cpu, MemoryStick, SquareTerminal, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Cpu, Loader2, MemoryStick, Pencil, SquareTerminal, Trash2 } from 'lucide-react';
 import StatCard from './StatCard';
 import MetricChart from './MetricChart';
 import Terminal from './Terminal';
-import type { ContainerDetail, ContainerStats, ContainerHistoryPoint } from '../types';
+import EditConfirm from './EditConfirm';
+import type { ContainerDetail, ContainerStats, ContainerHistoryPoint, PortBinding, PreviewResult } from '../types';
 
 interface Props {
   containerId: string;
@@ -26,6 +27,11 @@ export default function ContainerDetail({ containerId, onBack, onAction, onDelet
   const [history, setHistory] = useState<ContainerHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [editingPort, setEditingPort] = useState<string | null>(null);
+  const [newPort, setNewPort] = useState('');
+  const [portPreviewing, setPortPreviewing] = useState(false);
+  const [portError, setPortError] = useState<string | null>(null);
+  const [portPreview, setPortPreview] = useState<PreviewResult | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -69,13 +75,38 @@ export default function ContainerDetail({ containerId, onBack, onAction, onDelet
 
   if (!container) return null;
 
-  const ports = container.ports
-    ? Object.entries(container.ports)
-        .filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Array.isArray(entry[1]))
-        .flatMap(([portKey, mappings]) =>
-          mappings.map((m) => `${m.HostIp || '0.0.0.0'}:${m.HostPort || ''}->${portKey}`)
-        )
-    : [];
+  // Driven by the CONFIGURED bindings, not NetworkSettings.Ports: the latter is empty
+  // for a stopped container, which is exactly the container whose port needs changing.
+  const bindings = container.portBindings ?? [];
+  const keyOf = (b: PortBinding) => `${b.hostPort}:${b.containerPort}/${b.protocol}`;
+
+  const startEdit = (b: PortBinding) => {
+    setEditingPort(keyOf(b));
+    setNewPort(b.hostPort);
+    setPortError(null);
+  };
+
+  const previewPort = async (b: PortBinding) => {
+    setPortPreviewing(true);
+    setPortError(null);
+    try {
+      const res = await fetch(`/api/ports/${containerId}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hostPort: b.hostPort, containerPort: b.containerPort, newHostPort: Number(newPort) }),
+      });
+      const data = await res.json();
+      // The refusals (interpolated ${VAR}, missing compose file, long syntax) ARE the
+      // output for most containers here: show them, never swallow them.
+      if (!res.ok) throw new Error(data.error || 'Failed to preview');
+      setPortPreview(data);
+      setEditingPort(null);
+    } catch (err) {
+      setPortError(err instanceof Error ? err.message : 'Failed to preview');
+    } finally {
+      setPortPreviewing(false);
+    }
+  };
 
   return (
     <div className="p-6 lg:p-8 overflow-y-auto">
@@ -165,13 +196,63 @@ export default function ContainerDetail({ containerId, onBack, onAction, onDelet
             <span className="text-muted shrink-0">Started</span>
             <span className="tabular-nums">{new Date(container.startedAt).toLocaleString()}</span>
           </div>
-          {ports.length > 0 && (
+          {bindings.length > 0 && (
             <div className="flex justify-between gap-4 min-w-0 md:col-span-2">
               <span className="text-muted shrink-0">Ports</span>
-              <div className="text-right min-w-0">
-                {ports.map((p, i) => (
-                  <div key={i} className="font-mono text-xs leading-relaxed">{p}</div>
+              <div className="min-w-0 space-y-1">
+                {bindings.map((b) => (
+                  <div key={keyOf(b)} className="flex items-center justify-end gap-2">
+                    {editingPort === keyOf(b) ? (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={65535}
+                          value={newPort}
+                          autoFocus
+                          onChange={(e) => setNewPort(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && previewPort(b)}
+                          className="w-24 h-9 px-2.5 rounded-lg border border-line bg-base text-xs font-mono"
+                          aria-label="New host port"
+                        />
+                        <span className="font-mono text-xs text-muted">→ {b.containerPort}/{b.protocol}</span>
+                        <button
+                          onClick={() => previewPort(b)}
+                          disabled={portPreviewing}
+                          className="px-3 h-9 rounded-lg border border-line text-sm font-medium hover:bg-hover transition-colors inline-flex items-center gap-2 disabled:opacity-50"
+                        >
+                          {portPreviewing && <Loader2 size={14} strokeWidth={2} className="animate-spin" />}
+                          Preview
+                        </button>
+                        <button
+                          onClick={() => setEditingPort(null)}
+                          className="px-3 h-9 rounded-lg border border-line text-sm font-medium hover:bg-hover transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-mono text-xs leading-relaxed">
+                          {b.hostPort || '(random)'} → {b.containerPort}/{b.protocol}
+                        </span>
+                        {b.hostPort && (
+                          <button
+                            onClick={() => startEdit(b)}
+                            title="Change the published host port"
+                            aria-label="Change the published host port"
+                            className="p-1 rounded-lg text-muted hover:bg-hover hover:text-fg transition-colors"
+                          >
+                            <Pencil size={13} strokeWidth={2} />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 ))}
+                {portError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 max-w-prose ml-auto pt-1">{portError}</p>
+                )}
               </div>
             </div>
           )}
@@ -240,6 +321,17 @@ export default function ContainerDetail({ containerId, onBack, onAction, onDelet
           Delete
         </button>
       </div>
+
+      {portPreview && (
+        <EditConfirm
+          applyUrl={`/api/ports/${containerId}/apply`}
+          preview={portPreview}
+          onClose={() => setPortPreview(null)}
+          // Nothing to reload: the compose file changed, the container keeps its old
+          // binding until `docker compose up -d` recreates it — which the modal says.
+          onApplied={() => {}}
+        />
+      )}
     </div>
   );
 }

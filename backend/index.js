@@ -16,6 +16,7 @@ const gb10Router = require('./gb10');
 const { router: appsRouter } = require('./apps');
 const { router: insightsRouter } = require('./insights');
 const { router: skillsRouter } = require('./skills');
+const { router: portsRouter, portBindings } = require('./ports');
 const { router: machineRouter } = require('./machine');
 const { router: updatesRouter } = require('./updates');
 
@@ -122,6 +123,9 @@ app.get('/api/containers/:id', async (req, res) => {
       status: inspect.State.Status,
       running: inspect.State.Running,
       ports: inspect.NetworkSettings.Ports,
+      // NetworkSettings.Ports is {} for a stopped container — i.e. for exactly the ones
+      // worth repointing. The CONFIGURED bindings are the editable truth.
+      portBindings: portBindings(inspect),
       restartPolicy: inspect.HostConfig.RestartPolicy.Name,
       startedAt: inspect.State.StartedAt,
       created: inspect.Created,
@@ -469,6 +473,7 @@ app.use('/api/gb10', gb10Router);
 app.use('/api/apps', appsRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/skills', skillsRouter);
+app.use('/api/ports', portsRouter);
 app.use('/api/machine', machineRouter);
 app.use('/api/updates', updatesRouter);
 

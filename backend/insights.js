@@ -63,21 +63,25 @@ function findPortConflicts(containers) {
 // listContainers({ all: true }) leaves Ports empty for anything not running — the
 // configured bindings only live in inspect().HostConfig.PortBindings — so, like
 // /api/containers in index.js, every container has to be inspected individually.
+// Exported: ports.js needs the same list to tell who already holds a host port.
+async function collectContainerPorts() {
+  const containers = await docker.listContainers({ all: true });
+  return Promise.all(containers.map(async (info) => {
+    const inspect = await docker.getContainer(info.Id).inspect();
+    const bindings = inspect.HostConfig.PortBindings || {};
+    const hostPorts = [...new Set(Object.values(bindings).flat().filter(Boolean).map((b) => b.HostPort))];
+    return {
+      name: info.Names[0].replace('/', ''),
+      running: inspect.State.Running,
+      restartPolicy: inspect.HostConfig.RestartPolicy.Name,
+      hostPorts,
+    };
+  }));
+}
+
 async function portConflictsFacts() {
   try {
-    const containers = await docker.listContainers({ all: true });
-    const normalized = await Promise.all(containers.map(async (info) => {
-      const inspect = await docker.getContainer(info.Id).inspect();
-      const bindings = inspect.HostConfig.PortBindings || {};
-      const hostPorts = [...new Set(Object.values(bindings).flat().filter(Boolean).map((b) => b.HostPort))];
-      return {
-        name: info.Names[0].replace('/', ''),
-        running: inspect.State.Running,
-        restartPolicy: inspect.HostConfig.RestartPolicy.Name,
-        hostPorts,
-      };
-    }));
-    return findPortConflicts(normalized);
+    return findPortConflicts(await collectContainerPorts());
   } catch {
     return []; // Docker socket unavailable: no facts, not a 500
   }
@@ -107,4 +111,4 @@ router.get('/', async (req, res) => {
   res.json({ insights });
 });
 
-module.exports = { router, collectFacts, findPortConflicts, portConflictsFacts };
+module.exports = { router, collectFacts, findPortConflicts, portConflictsFacts, collectContainerPorts };

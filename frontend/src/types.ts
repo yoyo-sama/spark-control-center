@@ -54,6 +54,12 @@ export interface ContainerStats {
   memory_percent_combined: number;
 }
 
+export interface PortBinding {
+  hostPort: string;
+  containerPort: string;
+  protocol: string;
+}
+
 export interface ContainerDetail {
   id: string;
   shortId: string;
@@ -62,6 +68,9 @@ export interface ContainerDetail {
   status: string;
   running: boolean;
   ports: Record<string, Array<{ HostIp: string; HostPort: string }> | null> | null;
+  // The CONFIGURED bindings: unlike `ports`, they are still there when the container
+  // is stopped, which is precisely when the published port needs to be changed.
+  portBindings: PortBinding[];
   restartPolicy: string;
   startedAt: string;
   created: string;
