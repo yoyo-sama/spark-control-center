@@ -84,12 +84,7 @@ function chipNameFromGpu(gpus) {
 
 // --- OS ---
 function getOsInfo() {
-  let arch = null;
-  try {
-    arch = execSync('uname -m').toString().trim();
-  } catch {
-    arch = null;
-  }
+  const arch = os.machine(); // same value as `uname -m`, no subprocess
   // /etc/os-release inside the container is the IMAGE's distro (Debian), not the
   // machine's (Ubuntu here). The host copy is bind-mounted; the fallback keeps
   // host-side runs working. The kernel needs no such care: it is shared.

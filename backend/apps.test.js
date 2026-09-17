@@ -1,12 +1,15 @@
-// Run against a COPY: COMFY_DIR=/tmp/.../fake node --test backend/apps.test.js
+// Self-contained: copies fixtures/comfy into a fresh temp dir and points COMFY_DIR
+// at that copy, so this suite needs no setup and can never touch the real install.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const DIR = process.env.COMFY_DIR;
-assert.ok(DIR && DIR !== '/home/sparks/comfyui-spark', 'COMFY_DIR must point at a throwaway copy');
+const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'comfy-test-'));
+fs.cpSync(path.join(__dirname, 'fixtures', 'comfy'), DIR, { recursive: true });
+process.env.COMFY_DIR = DIR; // override unconditionally: apps.js reads it lazily on every call
 
 const { APPS } = require('./apps');
 const comfy = APPS.find((a) => a.id === 'comfyui');
@@ -14,6 +17,7 @@ const FILE = path.join(DIR, 'compose.yaml');
 const ORIG = path.join(DIR, 'compose.yaml.orig');
 
 test.before(() => fs.copyFileSync(FILE, ORIG));
+test.after(() => fs.rmSync(DIR, { recursive: true, force: true }));
 
 test('(d) read() never leaks the real token', async () => {
   const r = await comfy.read();

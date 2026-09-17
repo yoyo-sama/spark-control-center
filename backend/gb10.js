@@ -6,8 +6,12 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const Docker = require('dockerode');
+const { memo } = require('./metrics');
+
+const execFileAsync = promisify(execFile);
 
 const router = express.Router();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -60,12 +64,14 @@ function readLastApply() {
   }
 }
 
-function readGpuActual() {
+async function readGpuActual() {
   try {
-    const out = execSync(
-      'nvidia-smi -i 0 --query-gpu=persistence_mode,clocks.gr,clocks.applications.graphics,clocks.max.graphics,temperature.gpu,power.draw --format=csv,noheader,nounits'
-    ).toString().trim();
-    const [persistence, clockCur, clockApp, clockMax, temp, power] = out.split(',').map((s) => s.trim());
+    const { stdout } = await execFileAsync('nvidia-smi', [
+      '-i', '0',
+      '--query-gpu=persistence_mode,clocks.gr,clocks.applications.graphics,clocks.max.graphics,temperature.gpu,power.draw',
+      '--format=csv,noheader,nounits',
+    ]);
+    const [persistence, clockCur, clockApp, clockMax, temp, power] = stdout.trim().split(',').map((s) => s.trim());
     return {
       gpuPersistenceMode: persistence === 'Enabled' ? true : persistence === 'Disabled' ? false : null,
       gpuClockCurrentMhz: num(clockCur),
@@ -121,8 +127,8 @@ function readThermalMonitor() {
   }
 }
 
-function readActual() {
-  const gpu = readGpuActual();
+async function _readActual() {
+  const gpu = await readGpuActual();
   const swap = readSwapActual();
   return {
     gpuPersistenceMode: gpu.gpuPersistenceMode,
@@ -137,6 +143,9 @@ function readActual() {
     thermalMonitor: readThermalMonitor(),
   };
 }
+// Also collapses readThermalMonitor()'s scan of every /proc/<pid>/cmdline on the host,
+// which would otherwise run on every call.
+const readActual = memo(_readActual, 2000);
 
 const KEYS = ['gpuClockLimitMhz', 'gpuPersistenceMode', 'swapDisabled', 'vmSwappiness', 'thermalMonitor'];
 
@@ -187,7 +196,7 @@ function computeStatus(stored, desired, actual, lastApply) {
 
 async function buildFullState(stored) {
   const desired = { ...DEFAULT_DESIRED, ...stored };
-  const actual = readActual();
+  const actual = await readActual();
   const lastApply = readLastApply();
   return {
     desired,

@@ -1,0 +1,17 @@
+# Test fixture standing in for the real comfyui-spark compose.yaml.
+# Trimmed down, but shaped the same way: comments, an environment: block whose
+# entries are indented deeper than the key, and a COMFY_CMDLINE_EXTRA line.
+services:
+  comfyui:
+    image: comfyui-nvidia:latest
+    container_name: comfyui-nvidia
+    # Runtime env for CUDA caching and the ComfyUI launcher.
+    environment:
+      HF_TOKEN: hf_FAKE_TOKEN_FOR_TESTS
+      CUDA_CACHE_MAXSIZE: 4294967296
+      # Extra CLI flags appended to the ComfyUI entrypoint.
+      COMFY_CMDLINE_EXTRA: --use-pytorch-cross-attention --bf16-unet
+    volumes:
+      - ./userscripts_dir:/opt/userscripts_dir
+    # Always come back up after a host reboot.
+    restart: unless-stopped

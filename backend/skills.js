@@ -296,6 +296,8 @@ router.get('/:name', (req, res) => {
 router.post('/preview', async (req, res) => {
   const r = await previewSkill(req.body || {});
   if (r.error) return res.status(r.status).json({ error: r.error });
+  // A preview that is never applied would otherwise stay in the Map forever.
+  for (const [t, e] of previews) if (Date.now() - e.createdAt > TTL) previews.delete(t);
   previews.set(r.response.token, { plan: r.plan, restart: r.response.restart, createdAt: Date.now() });
   res.json(r.response);
 });

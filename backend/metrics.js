@@ -1,6 +1,8 @@
 const os = require('os');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const fs = require('fs');
+const execFileAsync = promisify(execFile);
 
 // Background CPU sampler: /proc stats are cumulative since boot,
 // so usage percent must be computed on a delta between two snapshots.
@@ -51,10 +53,11 @@ function getHostMetrics() {
 
 function getDiskMetrics() {
   try {
-    const out = execSync('df -B1 /').toString();
-    const parts = out.split('\n')[1].split(/\s+/);
-    const total = parseInt(parts[1]);
-    const used = parseInt(parts[2]);
+    // statfsSync avoids a subprocess entirely; df's own block rounding is the
+    // only source of the few-byte difference from `df -B1 /`.
+    const s = fs.statfsSync('/');
+    const total = s.blocks * s.bsize;
+    const used = (s.blocks - s.bfree) * s.bsize;
     return {
       disk_total_bytes: total,
       disk_used_bytes: used,
@@ -65,16 +68,33 @@ function getDiskMetrics() {
   }
 }
 
-function getGpuMetrics() {
+// nvidia-smi costs ~26 ms a call and /api/system needs two readings, with every open
+// tab polling every 5 s. Caching the in-flight promise makes concurrent callers share
+// one subprocess and reuses a reading for `ttl` ms. Safe to cache the promise because
+// the wrapped readers catch everything and resolve to a fallback, never reject.
+function memo(fn, ttl) {
+  let promise = null;
+  let time = 0;
+  return () => {
+    if (!promise || Date.now() - time > ttl) {
+      time = Date.now();
+      promise = fn();
+    }
+    return promise;
+  };
+}
+
+async function _getGpuMetrics() {
   const num = (v) => {
     const n = parseFloat(v);
     return Number.isFinite(n) ? n : null;
   };
   try {
-    const out = execSync(
-      'nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits'
-    ).toString();
-    return out
+    const { stdout } = await execFileAsync('nvidia-smi', [
+      '--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw',
+      '--format=csv,noheader,nounits',
+    ]);
+    return stdout
       .trim()
       .split('\n')
       .map((line) => {
@@ -93,14 +113,16 @@ function getGpuMetrics() {
     return [];
   }
 }
+const getGpuMetrics = memo(_getGpuMetrics, 2000);
 
-function getGpuMemoryByContainer() {
+async function _getGpuMemoryByContainer() {
   const map = new Map();
   try {
-    const out = execSync(
-      'nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits'
-    ).toString();
-    for (const line of out.trim().split('\n').filter(Boolean)) {
+    const { stdout } = await execFileAsync('nvidia-smi', [
+      '--query-compute-apps=pid,used_memory',
+      '--format=csv,noheader,nounits',
+    ]);
+    for (const line of stdout.trim().split('\n').filter(Boolean)) {
       const parts = line.split(',').map((s) => s.trim());
       if (parts.length < 2) continue;
       const pid = parseInt(parts[0], 10);
@@ -123,6 +145,7 @@ function getGpuMemoryByContainer() {
   }
   return map;
 }
+const getGpuMemoryByContainer = memo(_getGpuMemoryByContainer, 2000);
 
 function getContainerStats(stats, prevSample) {
   const cpuTotal = stats.cpu_stats?.cpu_usage?.total_usage || 0;
@@ -172,4 +195,4 @@ function getContainerStats(stats, prevSample) {
   };
 }
 
-module.exports = { getHostMetrics, getDiskMetrics, getGpuMetrics, getGpuMemoryByContainer, getContainerStats };
+module.exports = { getHostMetrics, getDiskMetrics, getGpuMetrics, getGpuMemoryByContainer, getContainerStats, memo };

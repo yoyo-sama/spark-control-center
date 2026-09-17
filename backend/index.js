@@ -152,7 +152,7 @@ app.get('/api/containers/:id/stats', async (req, res) => {
       cpu: stats.cpu_stats?.cpu_usage?.total_usage || 0,
       sys: stats.cpu_stats?.system_cpu_usage || 0,
     });
-    const gpuMemMap = getGpuMemoryByContainer();
+    const gpuMemMap = await getGpuMemoryByContainer();
     const vramBytes = gpuMemMap.get(inspect.Id) || gpuMemMap.get(req.params.id) || 0;
     const memTotal = os.totalmem();
     const combinedUsage = base.memory_usage_bytes + vramBytes;
@@ -178,7 +178,7 @@ app.get('/api/system', async (req, res) => {
   try {
     const host = getHostMetrics();
     const disk = getDiskMetrics();
-    const gpus = getGpuMetrics();
+    const gpus = await getGpuMetrics();
     const containers = await docker.listContainers({ all: true });
     const images = await docker.listImages();
     const volumes = await docker.listVolumes();
@@ -188,7 +188,7 @@ app.get('/api/system', async (req, res) => {
       statusCounts[c.State] = (statusCounts[c.State] || 0) + 1;
     });
 
-    const gpuMemMap = getGpuMemoryByContainer();
+    const gpuMemMap = await getGpuMemoryByContainer();
     const memTotal = host.memory_total_bytes || 1;
     const vramByContainer = containers
       .map((c) => {

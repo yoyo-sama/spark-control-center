@@ -745,6 +745,8 @@ router.post('/:id/preview', async (req, res) => {
   if (!app) return res.status(404).json({ error: 'Unknown app' });
   const r = await app.preview(req.body || {});
   if (r.error) return res.status(400).json({ error: r.error });
+  // A preview that is never applied would otherwise stay in the Map forever.
+  for (const [t, e] of previews) if (Date.now() - e.createdAt > TTL) previews.delete(t);
   previews.set(r.response.token, { appId: app.id, plan: r.plan, restart: r.response.restart, createdAt: Date.now() });
   res.json(r.response);
 });
