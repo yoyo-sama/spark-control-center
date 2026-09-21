@@ -174,8 +174,8 @@ sudo nvidia-smi -rgc
 | Setting | Measured effect |
 |---|---|
 | Root cause of the crashes | A power spike from 14 W to 85 W triggers the over-current protection — **not** a thermal throttle |
-| Clock cap at 2100 MHz | 85 W spikes brought down to a stable 50 W, 72–79 °C, no more crashes |
-| Clock cap at 2200 MHz (variant) | −12 °C, −36% power, at a cost of 1% in decoding and 3.9% in prefill |
+| Clock cap at 2100 MHz | ComfyUI video generation (GPU saturated): 85 W under load brought down to ~50 W, 72–79 °C (barely changed), no more crashes ([NVIDIA forum](https://forums.developer.nvidia.com/t/unlocking-the-power-of-the-spark-in-comfyui-no-crashes/360336)) |
+| Clock cap at 2200 MHz (variant) | vLLM LLM serving, 8-min **average** (decode is memory-bound, the GPU often waits): 63 W → 40 W, peak 90 → 78 °C, no more thermal throttling, at a cost of 1% in decoding and 3.9% in prefill ([agjs/gb10-clock-cap](https://github.com/agjs/gb10-clock-cap)). Not comparable with the 2100 MHz row: different workload and metric |
 | Power limit | `nvidia-smi -q -d POWER` returns `Power Limit: N/A` on this GPU — the clock cap is the **only** lever, no wattage limit is adjustable |
 | `CUDA_CACHE_MAXSIZE=4294967296` | 20 s/step → 6.6 s/step (×3) |
 

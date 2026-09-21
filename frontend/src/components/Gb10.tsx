@@ -306,12 +306,21 @@ export default function Gb10({
                 <MiniStat label="Applications" value={fmtMhz(state.actual.gpuClockApplicationsMhz)} />
                 <MiniStat label="Max" value={fmtMhz(state.actual.gpuClockMaxMhz)} />
               </div>
-              <p className="text-xs text-muted leading-relaxed border-t border-line pt-3">
-                Root cause: a 14 W → 85 W power spike trips overcurrent protection (not a thermal throttle).
-                Measured at 2100 MHz: 85 W → 50 W stable, 72–79°C, no more crashes. At 2200 MHz: −12°C, −36%
-                power, costing 1% in decode and 3.9% in prefill. Power Limit: N/A on this GPU — the clock cap is
-                the only lever.
-              </p>
+              <div className="text-xs text-muted leading-relaxed border-t border-line pt-3 space-y-1">
+                <p>
+                  Root cause: a 14 W → 85 W power spike trips overcurrent protection (not a thermal throttle).
+                  Power Limit: N/A on this GPU — the clock cap is the only lever.
+                </p>
+                <p>Community measurements, vs stock clock — different workloads, so watts don't compare across lines:</p>
+                <p>
+                  • 2100 MHz, ComfyUI video (GPU saturated): 85 W → ~50 W under load, 72–79°C (unchanged), no
+                  more crashes.
+                </p>
+                <p>
+                  • 2200 MHz, vLLM LLM serving (8-min average, GPU often idle in decode): 63 → 40 W, peak 90 →
+                  78°C, −1% decode, −3.9% prefill.
+                </p>
+              </div>
             </SettingCard>
 
             <SettingCard title="GPU persistence mode" badge={<Badge status={state.status.gpuPersistenceMode} />}>

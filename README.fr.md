@@ -174,8 +174,8 @@ sudo nvidia-smi -rgc
 | Réglage | Effet mesuré |
 |---|---|
 | Cause racine des crashs | Un pic de puissance de 14 W à 85 W déclenche la protection de surintensité — **pas** un throttle thermique |
-| Plafond d'horloge à 2100 MHz | Pics à 85 W ramenés à 50 W stable, 72–79 °C, plus de crash |
-| Plafond à 2200 MHz (variante) | −12 °C, −36% de puissance, au coût de 1% en décodage et 3,9% en préfill |
+| Plafond d'horloge à 2100 MHz | Génération vidéo ComfyUI (GPU saturé) : 85 W en charge ramenés à ~50 W, 72–79 °C (quasi inchangé), plus de crash ([forum NVIDIA](https://forums.developer.nvidia.com/t/unlocking-the-power-of-the-spark-in-comfyui-no-crashes/360336)) |
+| Plafond à 2200 MHz (variante) | Service LLM vLLM, **moyenne** sur 8 min (le décodage est limité par la mémoire, le GPU attend souvent) : 63 W → 40 W, pic 90 → 78 °C, plus de throttling thermique, au coût de 1% en décodage et 3,9% en préfill ([agjs/gb10-clock-cap](https://github.com/agjs/gb10-clock-cap)). Non comparable à la ligne 2100 MHz : charge et mesure différentes |
 | Limite de puissance | `nvidia-smi -q -d POWER` renvoie `Power Limit: N/A` sur ce GPU — le plafond d'horloge est le **seul** levier, aucune limite en watts n'est réglable |
 | `CUDA_CACHE_MAXSIZE=4294967296` | 20 s/step → 6,6 s/step (×3) |
 
