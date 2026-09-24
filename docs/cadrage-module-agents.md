@@ -1,6 +1,7 @@
 # Cadrage — module « Agents » (OpenClaw + Hermes via NemoClaw)
 
-> Statut : **cadré et validé, planification non démarrée.**
+> Statut : **cadré et validé, exploration sur le GB10 faite le 2026-09-24, planification non démarrée.**
+> Résultats et décisions qui en découlent : section « Résultats de l'exploration ».
 > Cadré via `/architect` le 2026-09-24. Pour reprendre : lancer `/tour-de-controle` avec le brief de la
 > dernière section (copier-coller tel quel).
 
@@ -72,7 +73,7 @@ hôte à liste blanche » couvrent déjà environ la moitié du besoin.
 |---|---|---|
 | Historique métriques + audit | **SQLite via `node:sqlite`** (Node 22.5+ / 24 LTS), fichier sur volume Docker. Rétention : 7 jours bruts, puis agrégation horaire | Aucune dépendance native à compiler en ARM64, aucun conteneur de BDD en plus. Les conteneurs gérés restent sans état ; seules les données propres au control center sont persistées. **Écart assumé** avec le principe « aucune base de données » du README, à mettre à jour. |
 | Piloter `nemoclaw` depuis le conteneur | **Démon hôte `agents-bridge`** : Python, bibliothèque standard uniquement (asyncio, `pty`, socket Unix), unit systemd, rangé sous `host/agents-bridge/`. Liste blanche stricte de commandes, `argv` construit en code explicite, `shell=False`. Socket Unix monté dans le conteneur. | Voir l'encadré ci-dessous. |
-| UI HTTP des agents | **Reverse proxy dans Express** (`http-proxy-middleware`, WebSocket relayés) sous `/agents/<id>/ui/` | Une seule origine et une seule auth ; les UI des agents ne sont jamais exposées directement. |
+| UI HTTP des agents | **Reverse proxy dans Express** (`http-proxy-middleware`, WebSocket relayés), **une origine par agent** via un port Tailscale Serve dédié, affichée en iframe | Une seule auth ; les UI des agents ne sont jamais exposées directement. **Révisé après exploration** (sous-chemin `/agents/<id>/ui/` abandonné) : voir « Décisions de l'utilisateur ». |
 | TUI des agents | PTY ouvert par le bridge (`nemoclaw <sandbox>`) et relayé par le terminal WebSocket existant | Réutilise xterm.js, sans `node-pty` natif. |
 | Authentification | **Tailscale Serve** devant `127.0.0.1:8081` (HTTPS auto). Le backend exige et vérifie l'en-tête d'identité `Tailscale-User-Login`, comparé à une liste de comptes autorisés dans `.env` | Zéro mot de passe à gérer ; le bind `127.0.0.1` est conservé. |
 
@@ -103,20 +104,77 @@ hôte à liste blanche » couvrent déjà environ la moitié du besoin.
 
 Tout le reste dépend des réponses. À relever avant d'écrire la couche d'adaptation :
 
-- [ ] Sortie de `nemoclaw --help` et des sous-commandes utiles : liste, statut, start/stop, logs,
+- [x] Sortie de `nemoclaw --help` et des sous-commandes utiles : liste, statut, start/stop, logs,
       changement de modèle ou de fournisseur, onboarding. Versions de NemoClaw, OpenShell, OpenClaw
       et Hermes.
-- [ ] **Visibilité des sandboxes par Docker** : sont-elles des conteneurs de premier niveau (`docker ps`)
+- [x] **Visibilité des sandboxes par Docker** : sont-elles des conteneurs de premier niveau (`docker ps`)
       ou tournent-elles *à l'intérieur* d'un conteneur de cluster OpenShell (k3s) ? Cela détermine ce que
       dockerode peut faire directement et ce qui doit passer par le bridge.
-- [ ] Ports et chemins des UI HTTP des agents. Supportent-elles un sous-chemin (base path) derrière
+- [x] Ports et chemins des UI HTTP des agents. Supportent-elles un sous-chemin (base path) derrière
       un proxy, ou faut-il un sous-domaine ou un port dédié ?
-- [ ] Emplacement et format des fichiers de config d'OpenClaw et de Hermes (dans la sandbox ou sur
+- [x] Emplacement et format des fichiers de config d'OpenClaw et de Hermes (dans la sandbox ou sur
       l'hôte) et des politiques de sandbox.
-- [ ] Comment NemoClaw stocke les clés API cloud, et comment il bascule entre vLLM local et
+- [x] Comment NemoClaw stocke les clés API cloud, et comment il bascule entre vLLM local et
       fournisseurs cloud.
-- [ ] Où tourne vLLM (conteneur hôte ?), et son port `/metrics`.
+- [x] Où tourne vLLM (conteneur hôte ?), et son port `/metrics`.
 - [ ] Mettre en place les fixtures du mock-bridge avec les sorties réelles capturées.
+
+## Résultats de l'exploration (GB10, 2026-09-24)
+
+Relevés en lecture seule : aucune sandbox, aucun agent ni vLLM démarré, arrêté ou reconfiguré. Seul effet
+de bord : `nemoclaw <name> status` réécrit `active_gateway` avec la valeur qu'il avait déjà. Les sorties
+brutes, secrets masqués, sont sur le GB10 dans `docs/exploration-agents/` (non commitées).
+
+**Limite** : au moment du relevé, les deux sandboxes étaient arrêtées (OpenClaw sorti en code 141, Hermes
+en code 1, vers 07:55) et vLLM depuis la veille 22:20. Les en-têtes HTTP des UI et `/metrics` ont été
+déduits des fichiers des conteneurs arrêtés : **à confirmer en direct** une fois les services relancés.
+
+Versions : NemoClaw v0.0.124, OpenShell 0.0.116, OpenClaw 2026.7.1, Hermes 0.20.6, vLLM 0.27.1.
+
+| Point | Constat |
+|---|---|
+| CLI | `--help` n'exécute rien. Sortie JSON versionnée pour les lectures (`list`, `status`, `<name> status`, `inference get`). Cycle de vie : `<name> start` (répare aussi gateway et forwards), `stop`, `recover`, `gateway restart`. Logs : `<name> logs --follow`. TUI : `nemoclaw launch <name>` ou `<name> connect`. |
+| Docker | Sandboxes = **conteneurs Docker de premier niveau, pas de k3s**. Labels `openshell.ai/sandbox-name` et `io.nvidia.nemoclaw.agent`, aucun port publié, pas de redémarrage automatique. Gateway OpenShell = unité systemd utilisateur `nemoclaw-openshell-gateway` sur `127.0.0.1:8080`. |
+| UI OpenClaw | `127.0.0.1:18790`. Sous-chemin supporté (`gateway.controlUi.basePath`). Envoie `X-Frame-Options: DENY` et `frame-ancestors 'none'` ; le WebSocket exige une origine listée dans `allowedOrigins`. NemoClaw pose `dangerouslyDisableDeviceAuth` : un clic dans l'UI peut lancer des outils de l'agent. |
+| UI Hermes | Dashboard désactivé dans la sandbox. API sur le port 8642, jeton Bearer, `X-Forwarded-Prefix` géré. Le dashboard s'active avec `NEMOCLAW_HERMES_DASHBOARD=1` à l'onboard ou au rebuild (loopback, port 18789). |
+| Configs | `/sandbox/.openclaw/openclaw.json`, `/sandbox/.hermes/config.yaml` + `.env`, dans des volumes Docker non lisibles par l'utilisateur. Registre : `~/.nemoclaw/sandboxes.json`. Politiques en YAML via `<name> policy get`. NemoClaw régénère une partie des configs. |
+| Clés et inférence | Clés stockées dans le gateway OpenShell, non relisibles. Bascule : `nemoclaw inference set --provider --model`. **Une seule route d'inférence par gateway**, partagée par les agents qui y sont rattachés. Une gateway par port (`NEMOCLAW_GATEWAY_PORT`, état sous `~/.nemoclaw/gateways/<port>/`). |
+| vLLM | Lancé par le compose `~/vllm-api`, pas par NemoClaw. Port 8000 sur toutes les interfaces, `/metrics` sur le même port. |
+| Privilèges | Tout tourne sous l'utilisateur `sparks` : le bridge n'a pas besoin de root. |
+
+### Écarts avec le cadrage
+
+- **Pas de k3s** : dockerode suffit pour lire l'état et les logs. Start/stop passent quand même par
+  `nemoclaw` (il répare gateway et forwards), jamais par `docker start/stop` direct.
+- **Registre `APPS` non applicable tel quel** : les configs vivent dans des volumes et NemoClaw en régénère
+  une partie. Pistes pour l'édition : `download`/`upload`, `config export`, `policy --dry-run`.
+- **Bridge sans root** : l'unité `agents-bridge` tourne sous l'utilisateur, pas en root.
+- **Origine unique abandonnée pour les UI d'agents** : voir la décision 1.
+
+### Décisions de l'utilisateur (2026-09-24)
+
+1. **UI des agents : une origine séparée par agent, en iframe.** Chaque UI est servie sur son propre port
+   Tailscale Serve, toujours derrière l'authentification du backend. Le proxy remplace seulement
+   `frame-ancestors` par l'origine du control center, retire `X-Frame-Options` (qui ne sait pas lister
+   des origines) et garde le reste de la CSP. Cette origine est ajoutée à `allowedOrigins`. Un bouton
+   « ouvrir dans un onglet » est prévu. Raison : servie sous `/agents/<id>/ui/`, une UI d'agent partagerait
+   l'origine du control center ; un script de l'UI, une XSS ou un contenu piégé par prompt injection
+   pourrait alors appeler toute l'API (Docker, bridge, soit l'équivalent de root) et lire le localStorage
+   commun, où se trouve le jeton OpenClaw.
+2. **Route d'inférence commune aux deux agents** pour le MVP. Plus tard, l'app doit permettre de créer
+   une seconde gateway (`onboard --non-interactive` sur un autre port). Y rattacher un agent existant
+   recrée sa sandbox (sauvegarde puis restauration) : action longue et destructive, à traiter comme un
+   job avec confirmation.
+3. **Hermes : API, avec un lien vers son dashboard.** Il faut activer le dashboard, ce qui demande de
+   reconstruire la sandbox Hermes, après avoir réglé les deux points ci-dessous.
+
+### À traiter hors de l'app, avant le reste
+
+- `/sandbox/.hermes/.env` contient `GLM_API_KEY` et `NVIDIA_API_KEY` en clair.
+- `config.yaml` de Hermes vise un modèle cloud NVIDIA alors que le registre indique vLLM local : cause
+  probable de l'arrêt de Hermes (code 1), non prouvée.
+- vLLM écoute sur toutes les interfaces (port 8000).
+- Rejouer en direct le relevé des en-têtes des UI et d'un échantillon de `/metrics`.
 
 ## Risques identifiés
 
@@ -157,9 +215,15 @@ Périmètre (MVP) :
 - Cycle de vie : start/stop/restart des sandboxes, changement de modèle/fournisseur
   d'inférence (vLLM local ↔ API cloud) via les mécanismes officiels de NemoClaw.
 - Configuration : OpenClaw et Hermes ajoutés au registre backend/apps.js (pipeline
-  existant aperçu → diff → confirmation → écriture atomique), secrets masqués.
+  existant aperçu → diff → confirmation → écriture atomique), secrets masqués. Les
+  configs vivent dans des volumes Docker et NemoClaw en régénère une partie : passer
+  par download/upload, config export, policy --dry-run plutôt qu'une écriture directe.
 - Interaction : terminal xterm.js vers la TUI de chaque sandbox (PTY via le bridge),
-  UI HTTP des agents embarquées via reverse proxy Express sous /agents/<id>/ui/.
+  UI HTTP des agents embarquées en iframe via reverse proxy Express, une origine
+  séparée par agent (port Tailscale Serve dédié) ; le proxy remplace seulement
+  frame-ancestors par l'origine du control center, retire X-Frame-Options, garde le
+  reste de la CSP ; bouton « ouvrir dans un onglet ». Hermes : API + lien vers son
+  dashboard.
 - Sécurité : auth Tailscale Serve (en-tête Tailscale-User-Login vérifié contre une
   liste blanche .env), bind 127.0.0.1 conservé, journal d'audit, confirmation des
   actions destructives.
@@ -173,6 +237,8 @@ node:sqlite (volume Docker, 7 j bruts puis agrégats horaires) ; démon hôte
 host/agents-bridge en Python stdlib (asyncio, pty, socket Unix, systemd, liste blanche
 stricte, shell=False, non installé automatiquement — commande d'installation documentée) ;
 http-proxy-middleware pour les UI des agents ; Tailscale Serve pour l'auth.
+node:sqlite exige Node 22.5+ : le Dockerfile actuel est en node:20-slim, à passer en
+Node 24 LTS (image arm64). agents-bridge tourne sous l'utilisateur, pas en root.
 
 Contrainte d'architecture non négociable : l'environnement de développement doit
 s'exécuter dans Docker (docker-compose) dès la mise en place initiale du projet —
@@ -181,17 +247,19 @@ ajoutée après coup. Concrètement : docker-compose.dev.yml avec conteneurs bac
 (node --watch), frontend (Vite HMR) et mock-bridge (simule nemoclaw, sandboxes et
 /metrics vLLM). Seul agents-bridge tourne sur l'hôte, comme les units gb10-tuning.
 
-Premier lot obligatoire : exploration sur le GB10 réel (checklist dans
-docs/cadrage-module-agents.md) — CLI nemoclaw, visibilité des sandboxes par Docker
-(premier niveau ou dans un cluster OpenShell/k3s), ports et base path des UI des
-agents, emplacement des configs, gestion des clés et du changement de fournisseur,
-port /metrics de vLLM. Les sorties capturées alimentent les fixtures du mock-bridge.
+Exploration sur le GB10 réel : FAITE le 2026-09-24, résultats et décisions dans la
+section « Résultats de l'exploration » de docs/cadrage-module-agents.md. Sandboxes =
+conteneurs Docker de premier niveau (pas de k3s) : dockerode pour l'état et les logs,
+nemoclaw pour start/stop. Une route d'inférence par gateway, partagée par les deux
+agents au MVP ; créer une 2e gateway depuis l'app viendra plus tard. Restent à
+confirmer en direct : en-têtes des UI et échantillon /metrics. Les sorties capturées
+(docs/exploration-agents/ sur le GB10) alimentent les fixtures du mock-bridge.
 
 Risques identifiés : interfaces NemoClaw/OpenShell/OpenClaw jeunes et instables
 (couche d'adaptation isolée, refuser plutôt que deviner) ; visibilité Docker des
-sandboxes incertaine ; frontière de confiance (docker.sock + bridge = root) ;
+frontière de confiance (docker.sock + bridge = root) ;
 intégrité des sandboxes (ne jamais contourner OpenShell) ; images ARM64 ; UI
-d'agents peut-être incompatibles avec un sous-chemin/iframe.
+d'agents à isoler sur leur propre origine (clickjacking, accès à l'API par même origine).
 
 Modèle imposé pour la phase PLANIFIER : opus (choisi en amont avec l'utilisateur
 selon la complexité du projet cadré — ne re-décide pas ce point).
