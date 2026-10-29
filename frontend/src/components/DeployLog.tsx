@@ -1,30 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-
-interface LogEntry {
-  type: string;
-  text: string;
-  time?: string;
-}
+import LogView, { type LogEntry } from './LogView';
 
 interface Props {
   deployId: string;
   onDone: () => void;
 }
 
-const logColors: Record<string, string> = {
-  error: 'text-red-500',
-  cmd: 'text-amber-600 dark:text-amber-400',
-  success: 'text-emerald-600 dark:text-emerald-400',
-  info: 'text-sky-600 dark:text-sky-400',
-  output: 'text-muted',
-};
-
 export default function DeployLog({ deployId, onDone }: Props) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [status, setStatus] = useState<string>('running');
   const [copied, setCopied] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const es = new EventSource(`/api/events/deploy/${deployId}`);
@@ -48,10 +34,6 @@ export default function DeployLog({ deployId, onDone }: Props) {
 
     return () => es.close();
   }, [deployId]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
 
   const handleCopyLogs = async () => {
     const text = logs.map(l => l.text).join('\n');
@@ -95,23 +77,7 @@ export default function DeployLog({ deployId, onDone }: Props) {
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-4 font-mono text-xs leading-relaxed">
-          {logs.length === 0 && status === 'running' && (
-            <div className="text-muted">Waiting for logs...</div>
-          )}
-          {logs.map((log, i) => (
-            <div key={i} className={`whitespace-pre-wrap ${logColors[log.type] ?? 'text-muted'}`}>
-              {log.text}
-            </div>
-          ))}
-          {status === 'running' && logs.length > 0 && (
-            <div className="inline-flex items-center gap-1.5 text-muted mt-1">
-              <Loader2 size={11} className="animate-spin" />
-              Running...
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
+        <LogView logs={logs} running={status === 'running'} className="flex-1 px-6 py-4" />
       </div>
     </div>
   );

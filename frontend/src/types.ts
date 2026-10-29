@@ -97,7 +97,7 @@ export interface ContainerHistoryPoint {
   [key: string]: number | string;
 }
 
-export type View = 'gb10' | 'dashboard' | 'container-detail' | 'dgx' | 'apps';
+export type View = 'gb10' | 'dashboard' | 'container-detail' | 'dgx' | 'apps' | 'benchmarks';
 
 export type Gb10SettingKey =
   | 'gpuClockLimitMhz'
@@ -400,4 +400,190 @@ export interface ClaudeCodeState {
   plugins?: ClaudeCodePlugins;
   mcp?: ClaudeCodeMcp;
   hooks?: ClaudeCodeHooks;
+}
+
+// ---------- Benchmarks (backend/benchmarks.js, benchtools.js, benchtargets.js) ----------
+
+export interface BenchParamSpec {
+  key: string;
+  type: 'enum' | 'bool' | 'int' | 'number' | 'string';
+  label: string;
+  help?: string;
+  default: string | number | boolean | null;
+  choices?: string[];
+  min?: number;
+  max?: number;
+  nullable?: boolean;
+  sweepable?: boolean;
+}
+
+export interface BenchTool {
+  id: string;
+  label: string;
+  vendor: string;
+  description: string;
+  homepage: string;
+  version: string;
+  image: string;
+  imageSizeHint: string;
+  imageReady: boolean;
+  params: BenchParamSpec[];
+}
+
+export interface BenchTarget {
+  id: string;
+  label: string;
+  kind: string;
+  kindLabel: string;
+  containerName: string | null;
+  image: string | null;
+  port: number;
+  url: string;
+  reachable: boolean;
+  models: string[];
+  vramBytes: number | null;
+}
+
+export type BenchParams = Record<string, string | number | boolean | null>;
+
+export interface BenchMetricStats {
+  unit: string;
+  avg?: number;
+  min?: number;
+  max?: number;
+  p50?: number;
+  p90?: number;
+  p95?: number;
+  p99?: number;
+  std?: number;
+}
+
+export type BenchMetrics = Partial<Record<string, BenchMetricStats>>;
+
+export type CapVerdict = 'held' | 'exceeded' | 'not-observable' | 'no-cap';
+
+export interface BenchTelemetrySummary {
+  samples: number;
+  durationS: number | null;
+  powerAvgW: number | null;
+  powerMaxW: number | null;
+  tempMaxC: number | null;
+  clockMedianMhz: number | null;
+  clockMaxMhz: number | null;
+  loadedSamples: number;
+  energyJ: number | null;
+  tokensPerJoule: number | null;
+  cap: { mhz: number | null; verdict: CapVerdict; message: string };
+}
+
+export type BenchStepStatus = 'pending' | 'running' | 'success' | 'cancelled' | 'failed' | 'skipped';
+export type BenchRunStatus = 'queued' | 'preparing' | 'running' | 'success' | 'failed' | 'cancelled' | 'interrupted';
+
+export interface BenchStep {
+  index: number;
+  key: string;
+  value: number;
+  params: BenchParams;
+  status: BenchStepStatus;
+  startedAt?: string;
+  finishedAt?: string;
+  command?: string;
+  exitCode?: number;
+  error?: string;
+  result?: {
+    file: string;
+    schemaVersion: string | null;
+    toolVersion: string | null;
+    wasCancelled: boolean;
+    isComplete: boolean;
+    errorCount: number;
+    metrics: BenchMetrics;
+  } | null;
+  telemetry?: BenchTelemetrySummary;
+}
+
+export interface BenchGb10Snapshot {
+  capMhz: number | null;
+  capStatus: Gb10Status | null;
+  pipelineInstalled: boolean;
+  appliedAt: string | null;
+  clockMaxMhz: number | null;
+}
+
+export interface BenchRun {
+  id: string;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  status: BenchRunStatus;
+  error: string | null;
+  tool: { id: string; label: string; version: string };
+  target: { url: string; model: string; label: string | null; kind: string | null; containerName: string | null; hasApiKey: boolean };
+  params: BenchParams;
+  sweep: { key: string; values: number[] } | null;
+  cooldownS: number;
+  gb10: BenchGb10Snapshot | null;
+  warnings: string[];
+  steps: BenchStep[];
+  fingerprint: string;
+}
+
+export interface BenchStepSummary {
+  value: number;
+  status: BenchStepStatus;
+  outputTokenThroughput: number | null;
+  ttftP50: number | null;
+  itlP50: number | null;
+  tokensPerJoule: number | null;
+  capVerdict: CapVerdict | null;
+}
+
+export interface BenchRunSummary {
+  id: string;
+  createdAt: string;
+  finishedAt: string | null;
+  status: BenchRunStatus;
+  error: string | null;
+  tool: { id: string; label: string; version: string };
+  target: { label: string | null; model: string; kind: string | null; url: string };
+  params: {
+    endpointType: string;
+    streaming: boolean;
+    concurrency: number;
+    isl: number;
+    osl: number;
+    requestCount: number | null;
+    benchmarkDurationS: number | null;
+  };
+  sweep: { key: string; values: number[] } | null;
+  gb10: { capMhz: number | null } | null;
+  fingerprint: string;
+  stepCount: number;
+  stepsDone: number;
+  steps: BenchStepSummary[];
+  best: BenchStepSummary | null;
+}
+
+export interface BenchSample {
+  t: number;
+  step: number | null;
+  clockMhz: number | null;
+  powerW: number | null;
+  tempC: number | null;
+  utilPct: number | null;
+}
+
+export interface BenchLogEntry {
+  type: string;
+  text: string;
+  time?: string;
+}
+
+export interface BenchActiveStatus {
+  id: string;
+  status: BenchRunStatus;
+  model: string;
+  tool: string;
+  stepCount: number;
+  stepsDone: number;
 }

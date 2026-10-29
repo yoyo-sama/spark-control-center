@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.4",
+  "aiperf_version": "0.13.0",
+  "output_token_throughput": {
+    "unit": "tokens/sec",
+    "avg": 455.7980943205122
+  },
+  "was_cancelled": false
+}
