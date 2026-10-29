@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Rocket } from 'lucide-react';
+import { Activity, Loader2, RefreshCw, Rocket } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ContainerDetail from './components/ContainerDetail';
 import DgxDashboard from './components/DgxDashboard';
 import Gb10 from './components/Gb10';
 import Apps from './components/Apps';
+import Benchmarks from './components/Benchmarks';
 import DeployModal from './components/DeployModal';
 import DeployLog from './components/DeployLog';
 import ConfirmModal from './components/ConfirmModal';
-import type { Container, MachineInfo, View } from './types';
+import type { BenchActiveStatus, Container, MachineInfo, View } from './types';
 
 interface DeployForm {
   repo: string;
@@ -33,6 +34,8 @@ function App() {
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null);
   const [appTab, setAppTab] = useState<string | undefined>();
   const [machine, setMachine] = useState<MachineInfo | null>(null);
+  const [benchActive, setBenchActive] = useState<BenchActiveStatus | null>(null);
+  const [benchFocus, setBenchFocus] = useState<string | null>(null);
 
   const fetchContainers = async () => {
     try {
@@ -64,6 +67,23 @@ function App() {
     const interval = setInterval(fetchContainers, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // A benchmark is visible from every page while it runs (sidebar dot, header chip).
+  useEffect(() => {
+    const poll = () =>
+      fetch(`${API_BASE}/benchmarks/status`)
+        .then((res) => (res.ok ? res.json() : { active: null }))
+        .then((d) => setBenchActive(d.active))
+        .catch(() => setBenchActive(null));
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const openBenchmarks = (runId?: string) => {
+    setBenchFocus(runId ?? null);
+    setCurrentView('benchmarks');
+  };
 
   useEffect(() => {
     // ponytail: hardware identity doesn't change at runtime, fetch once, no polling.
@@ -148,7 +168,9 @@ function App() {
       ? machineLabel
       : currentView === 'apps'
         ? 'Apps'
-        : currentView === 'dashboard'
+        : currentView === 'benchmarks'
+          ? 'Benchmarks'
+          : currentView === 'dashboard'
           ? 'Containers'
           : currentView === 'dgx'
             ? 'DGX Dashboard'
@@ -158,16 +180,30 @@ function App() {
     <div className="flex h-screen bg-base text-fg font-sans">
       <Sidebar
         currentView={currentView}
-        onViewChange={setCurrentView}
+        onViewChange={(view) => {
+          if (view === 'benchmarks') setBenchFocus(null);
+          setCurrentView(view);
+        }}
         machineLabel={machineLabel}
         machineSubtitle={machineSubtitle}
+        benchmarkRunning={benchActive !== null}
       />
 
       <main className="flex-1 overflow-y-auto flex flex-col">
         <header className="sticky top-0 z-40 h-16 shrink-0 px-6 border-b border-line bg-base/80 backdrop-blur flex justify-between items-center">
           <h1 className="text-base font-semibold tracking-tight">{headerTitle}</h1>
           <div className="flex gap-2.5 items-center">
-            {currentView === 'gb10' || currentView === 'dgx' || currentView === 'apps' ? null : (
+            {benchActive && currentView !== 'benchmarks' && (
+              <button
+                onClick={() => openBenchmarks(benchActive.id)}
+                className="px-3 h-9 rounded-lg border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 text-sm font-medium inline-flex items-center gap-2 hover:bg-sky-500/15 transition-colors"
+                title={`${benchActive.tool} · ${benchActive.model}`}
+              >
+                <Activity size={14} strokeWidth={2.2} className="animate-pulse" />
+                Benchmark {benchActive.status === 'preparing' ? 'preparing' : `${benchActive.stepsDone}/${benchActive.stepCount}`}
+              </button>
+            )}
+            {currentView === 'gb10' || currentView === 'dgx' || currentView === 'apps' || currentView === 'benchmarks' ? null : (
               <button
                 onClick={() => setShowDeployModal(true)}
                 className="px-3.5 h-9 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:opacity-90 transition-opacity inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/30"
@@ -204,11 +240,16 @@ function App() {
                 setAppTab(id);
                 setCurrentView('apps');
               }}
+              onOpenBenchmarks={openBenchmarks}
               machine={machine}
             />
           )}
 
           {currentView === 'apps' && <Apps initialAppId={appTab} />}
+
+          {currentView === 'benchmarks' && (
+            <Benchmarks activeRunId={benchActive?.id ?? null} focusRunId={benchFocus} onOpenGb10={() => setCurrentView('gb10')} />
+          )}
 
           {currentView === 'dashboard' && (
             <Dashboard

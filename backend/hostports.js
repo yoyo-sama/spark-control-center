@@ -89,4 +89,46 @@ function getContainerListeningPorts(containerId, pids) {
   return result;
 }
 
-module.exports = { getContainerListeningPorts };
+// Published TCP ports of a bridge-network container, as listContainers reports them.
+function publishedTcpPorts(containerInfo) {
+  const seen = new Set();
+  return (containerInfo.Ports || [])
+    .filter((p) => p.PublicPort && p.Type === 'tcp')
+    .map((p) => ({ hostPort: p.PublicPort, containerPort: p.PrivatePort }))
+    .filter((p) => {
+      const key = `${p.hostPort}:${p.containerPort}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+async function getContainerPids(container) {
+  const top = await container.top();
+  const pidIdx = top.Titles.indexOf('PID');
+  if (pidIdx === -1) return [];
+  return top.Processes
+    .map((p) => parseInt(p[pidIdx], 10))
+    .filter((n) => Number.isFinite(n));
+}
+
+// Host-reachable TCP ports of a container. A `network_mode: host` container publishes
+// nothing, so its listening sockets are read from /proc instead. Shared by
+// /api/containers and the benchmark target discovery.
+async function resolveContainerPorts(container, containerInfo, inspect) {
+  if (inspect.HostConfig.NetworkMode === 'host' && containerInfo.State === 'running') {
+    try {
+      const pids = await getContainerPids(container);
+      return getContainerListeningPorts(containerInfo.Id, pids).map((port) => ({
+        hostPort: port,
+        containerPort: port,
+        hostNetwork: true,
+      }));
+    } catch (e) {
+      return [];
+    }
+  }
+  return publishedTcpPorts(containerInfo);
+}
+
+module.exports = { getContainerListeningPorts, resolveContainerPorts };

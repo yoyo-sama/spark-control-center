@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { HardDrive, Loader2, RotateCw, Thermometer, Wind, Zap } from 'lucide-react';
+import { ChartNoAxesColumn, HardDrive, Loader2, RotateCw, Thermometer, Wind, Zap } from 'lucide-react';
 import StatCard from './StatCard';
 import ConfirmModal from './ConfirmModal';
 import MachineCard from './MachineCard';
 import UpdatesCard from './UpdatesCard';
-import type { Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status, MachineInfo } from '../types';
+import type { BenchRunSummary, Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status, MachineInfo } from '../types';
+import { CAP_VERDICT, fmt as fmtBench } from '../lib/bench';
 import Insights from './Insights';
 
 const API_BASE = '/api';
@@ -116,11 +117,52 @@ const buttonClass =
 const inputClass =
   'h-9 px-2.5 rounded-lg border border-line bg-base text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 disabled:opacity-50 disabled:cursor-not-allowed';
 
+// The clock cap card's own measurements: the latest benchmark runs, with the cap they
+// ran under and whether it held under load.
+function MeasuredHere({ onOpenBenchmarks, unverified }: { onOpenBenchmarks?: (runId?: string) => void; unverified: boolean }) {
+  const [runs, setRuns] = useState<BenchRunSummary[] | null>(null);
+
+  useEffect(() => {
+    fetch('/api/benchmarks/runs')
+      .then((r) => (r.ok ? r.json() : { runs: [] }))
+      .then((d) => setRuns((d.runs as BenchRunSummary[]).filter((r) => r.best).slice(0, 3)))
+      .catch(() => setRuns([]));
+  }, []);
+
+  if (!onOpenBenchmarks) return null;
+  return (
+    <div className="text-xs leading-relaxed border-t border-line pt-3 mt-3 space-y-1.5">
+      <p className="text-muted">Measured on this machine:</p>
+      {runs && runs.length === 0 && <p className="text-muted">nothing yet.</p>}
+      {runs?.map((r) => {
+        const verdict = r.best?.capVerdict;
+        return (
+          <button key={r.id} onClick={() => onOpenBenchmarks(r.id)} className="block text-left hover:underline">
+            <span className="tabular-nums">• {r.gb10?.capMhz ? `${r.gb10.capMhz} MHz` : 'no cap'}</span>
+            <span className="text-muted"> — {r.target.model}, {fmtBench(r.best?.outputTokenThroughput, 0)} tok/s</span>
+            {r.best?.tokensPerJoule != null && <span className="text-muted">, {fmtBench(r.best.tokensPerJoule)} tok/J</span>}
+            {verdict && verdict !== 'no-cap' && <span className={CAP_VERDICT[verdict].cls}> · {CAP_VERDICT[verdict].label.toLowerCase()}</span>}
+          </button>
+        );
+      })}
+      <button
+        onClick={() => onOpenBenchmarks()}
+        className="mt-1 px-3 h-8 rounded-lg border border-line text-xs font-medium hover:bg-hover inline-flex items-center gap-1.5 text-fg"
+      >
+        <ChartNoAxesColumn size={13} />
+        {unverified ? 'Verify the cap under load with a benchmark' : 'Measure with a benchmark'}
+      </button>
+    </div>
+  );
+}
+
 export default function Gb10({
   onOpenApp,
+  onOpenBenchmarks,
   machine,
 }: {
   onOpenApp?: (appId: string) => void;
+  onOpenBenchmarks?: (runId?: string) => void;
   machine?: MachineInfo | null;
 }) {
   const [state, setState] = useState<Gb10State | null>(null);
@@ -321,6 +363,7 @@ export default function Gb10({
                   78°C, −1% decode, −3.9% prefill.
                 </p>
               </div>
+              <MeasuredHere onOpenBenchmarks={onOpenBenchmarks} unverified={state.status.gpuClockLimitMhz.state === 'unverified'} />
             </SettingCard>
 
             <SettingCard title="GPU persistence mode" badge={<Badge status={state.status.gpuPersistenceMode} />}>

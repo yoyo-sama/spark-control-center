@@ -238,4 +238,5 @@ router.post('/reapply', async (req, res) => {
   res.json(await buildFullState(stored));
 });
 
-module.exports = router;
+// buildFullState/readStored: the benchmark runner snapshots the clock cap a run was measured under.
+module.exports = { router, buildFullState, readStored };
