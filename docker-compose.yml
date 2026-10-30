@@ -38,6 +38,12 @@ services:
       - /var/lib/update-notifier:/var/lib/update-notifier:ro
       - /var/lib/spark-control-center:/var/lib/spark-control-center:ro
       - /var/lib/apt/periodic:/var/lib/apt/periodic:ro
+      # Benchmarks : historique des runs, en lecture-écriture (sous-dossier du montage
+      # :ro ci-dessus, Docker le monte par-dessus). MÊME chemin des deux côtés : l'app
+      # demande au démon Docker de monter ce dossier dans les conteneurs d'outils
+      # (AIPerf…), et le démon résout ce chemin sur l'HÔTE. Si BENCH_DIR est changé,
+      # changer les deux côtés de cette ligne avec.
+      - /var/lib/spark-control-center/benchmarks:/var/lib/spark-control-center/benchmarks
     extra_hosts:
       # ollama-api publie 11434 sur l'hôte et vit sur un autre réseau docker :
       # depuis ce conteneur, localhost ne l'atteint pas, la passerelle hôte si.
@@ -45,6 +51,9 @@ services:
     environment:
       - PORT=3001
       - OLLAMA_URL=http://host.docker.internal:11434
+      # Détection des serveurs à benchmarker : sondés via la passerelle hôte, pour la
+      # même raison qu'Ollama ci-dessus (les conteneurs d'outils, eux, sont en réseau hôte).
+      - BENCH_PROBE_HOST=host.docker.internal
       # Hors Docker le backend retombe sur le home de l'utilisateur courant ; dans le
       # conteneur il tourne en root, où ce home est /root et ne contient rien de tout
       # cela. Ces variables sont donc ce qui fait réellement foi ici, pas un repli.

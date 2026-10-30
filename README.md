@@ -8,7 +8,7 @@ Spark Control Center is a web control portal for a DGX Spark workstation (GB10 c
 
 ## Features
 
-The sidebar has four sections:
+The sidebar has five sections:
 
 - **GB10** — the home view, labelled dynamically with the detected machine name. GPU and thermal tuning:
   - **Settings**: GPU clock cap, persistence mode, swap, `vm.swappiness`, thermal monitor
@@ -23,6 +23,13 @@ The sidebar has four sections:
   - **Edit pipeline**: preview → line diff → warnings → explicit confirmation → atomic write preserving the file's owner and mode, with a timestamped `.bak` and a content-hash check that refuses a preview if the file changed meanwhile. Secrets are masked
   - **Shared skills manager**: the same skills are loaded by both opencode and Claude Code, so duplicates across roots are flagged
   - **Insight engine**: flags the real problems of this machine (rules live in `backend/rules.js`) rather than listing a catalogue
+- **Benchmarks** — measures how fast the models served on this machine really are, with [AIPerf](https://github.com/ai-dynamo/aiperf) (NVIDIA ai-dynamo):
+  - **Three choices and go**: the server (vLLM, SGLang, Ollama, llama.cpp, TGI, NIM… detected automatically, with their models), the kind of work (chat, coding agent, summarize, long generation, RAG) and the load (one user, or a concurrency sweep to find the sweet spot)
+  - **Live**: step-by-step progress, GPU power / clock / temperature, the tool's log
+  - **Readable results**: throughput, time to first token, inter-token latency, speed per user, efficiency in tokens per joule, p50 / p90 / p99 distribution, sweep curves
+  - **The GB10 clock cap checked under load**: every run records the cap in force and says whether it held, was ignored by the firmware, or was never reached — the GB10 card shows these measurements
+  - **History and comparison**: up to 4 runs side by side with % deltas, and a warning when they did not run the same workload
+  - **Extensible tool registry**: AIPerf is the first adapter (`backend/benchtools.js`)
 - **Containers**
   - **Container list**: status, image, restart policy, **launch directory** (host bind mounts + WorkingDir) and a **direct link to the app** for every published TCP port
   - **Host-network port auto-detection**: apps running with `network_mode: host` (no published ports) get their listening ports detected through `/proc` (socket inodes ↔ TCP tables matching)
@@ -103,7 +110,7 @@ docker compose up -d --build
 `docker compose up -d --build` takes care of everything: it rebuilds the single image from the new sources (frontend + backend), stops the outdated container and starts a new one, reusing the settings from `docker-compose.yml` (Docker socket, `pid: host`, GPU reservation, port mapping).
 
 The update is safe for your environment:
-- the application is **stateless** (no database, no local data to back up)
+- the application has **no database**; its only data is the benchmark history, on the host in `/var/lib/spark-control-center/benchmarks` — it survives updates
 - the containers it manages are **not affected** — they keep running during the update
 - your theme preference is stored in the browser and survives updates
 
@@ -134,6 +141,9 @@ No configuration is required. Optional variables (through the `environment:` sec
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3001` | Internal server port (serves both the API and the frontend) |
+| `BENCH_DIR` | `/var/lib/spark-control-center/benchmarks` | Benchmark runs folder (see "Benchmarks") |
+| `BENCH_PROBE_HOST` | `localhost` (`host.docker.internal` in the compose) | Host through which the app probes inference servers |
+| `AIPERF_VERSION` | `0.13.0` | Pinned AIPerf version |
 
 > To expose the UI on a port other than 8081, edit the `ports:` section of the `app` service (e.g. `"9090:3001"`).
 
@@ -247,6 +257,45 @@ sudo rm /usr/local/sbin/dgx-updates.sh /etc/systemd/system/dgx-updates.service /
 
 Without the timer installed, `/api/updates` still returns 200 with `pipelineInstalled: false` and a `note` explaining the package list is absent — the summary counts (which don't depend on the timer) are unaffected.
 
+## Benchmarks
+
+### The principle
+
+- **Each tool runs in its own throwaway container**, never inside the app image. On the first run, the app builds the `spark-control-center/aiperf:<version>` image (~1.7 GB, once; progress shows in the run's log). AIPerf 0.13 requires `crick`, which has no aarch64 wheel: it is compiled in a `python:3.12` build stage, and the final image starts from `python:3.12-slim`.
+- **One container per step**, with `network_mode: host`: the target URL is the host's `http://localhost:<port>`. It only sees its step's results folder and the tokenizer cache.
+- **One run at a time**: two benchmarks on the same GPU measure each other.
+- **Telemetry**: during each step the app reads `nvidia-smi` every second (power, clock, temperature, utilization) and records the GB10 cap in force. That gives the energy, the tokens per joule and the cap verdict under load, with the same thresholds as the GB10 card — the "real conditions" test the card cannot do while the GPU idles.
+- **Stopping**: SIGINT, so AIPerf writes its partial results; then a second SIGINT and SIGKILL if it doesn't exit.
+- **Comparability**: each run carries a fingerprint of its workload (prompt and answer sizes, request count, seed…). Model, server, cap and concurrency are not part of it: they are what gets compared.
+
+### Storage
+
+```
+/var/lib/spark-control-center/benchmarks/
+├── runs/<id>/run.json     # configuration, steps, normalized results, telemetry summary
+├── runs/<id>/log.jsonl    # the run's log
+├── runs/<id>/gpu.jsonl    # GPU samples (1 s)
+├── runs/<id>/steps/<n>/   # the tool's raw files (profile_export_aiperf.json…)
+└── hf-cache/              # downloaded tokenizers (HF_HOME of the tool containers)
+```
+
+This folder is mounted **at the same path** in the app container: the Docker daemon, on the host, resolves the tool containers' mounts. Deleting a run from the UI removes its folder; to remove the tool image: `docker image rm spark-control-center/aiperf:0.13.0`.
+
+### Tokenizer
+
+AIPerf counts tokens with the model's tokenizer. `auto` uses the model id when it is a Hugging Face repo (`Qwen/Qwen3-8B`, the vLLM and SGLang case), otherwise the built-in tiktoken tokenizer, which is approximate — the case of Ollama names such as `llama3.2:1b`; the run says so. Without internet access, copy a tokenizer folder into `hf-cache/` and point at it as `/hf/<folder>`.
+
+### Adding a tool
+
+A tool is one entry of `TOOLS` in `backend/benchtools.js`: its Dockerfile, its parameter schema (the form is built from it: a parameter without its own section shows under "Advanced settings"), `buildArgv`, and `parseResult`, which maps its results onto the canonical metrics (AIPerf's tags: `time_to_first_token`, `output_token_throughput`…).
+
+### Environment variables
+
+- `BENCH_DIR` (backend): the runs folder. Change it **on both sides** of the mount in `docker-compose.yml`.
+- `BENCH_PROBE_HOST` (backend): host through which the app queries the detected servers' `/v1/models` — `host.docker.internal` in the compose, since the app sits on a bridge network.
+- `AIPERF_VERSION` (backend): AIPerf version; changing it rebuilds the image on the next run.
+- `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`: when set for the app, they are passed to the image build and to the tool containers, with `localhost` always excluded from the proxy.
+
 ## Structure
 
 ```
@@ -262,6 +311,9 @@ Without the timer installed, `/api/updates` still returns 200 with `pipelineInst
 │   ├── updates.js      # System updates
 │   ├── hostports.js    # Listening port detection (host-network containers)
 │   ├── metrics.js      # System / GPU / container stats metrics
+│   ├── benchmarks.js   # Benchmarks: runner, storage, telemetry, API
+│   ├── benchtools.js   # Benchmark tool registry (AIPerf adapter)
+│   ├── benchtargets.js # Detection of the inference servers to benchmark
 │   ├── *.test.js       # Test suites (node --test)
 │   └── fixtures/       # Test fixtures
 ├── frontend/
@@ -306,6 +358,17 @@ Without the timer installed, `/api/updates` still returns 200 with `pipelineInst
 | GET | `/api/insights` | Insight engine findings |
 | GET | `/api/machine` | Machine identity |
 | GET | `/api/updates` | System updates (apt) |
+| GET | `/api/benchmarks/tools` | Benchmark tools, their parameter schema, image ready or not |
+| GET | `/api/benchmarks/targets` | Detected inference servers and their models |
+| GET | `/api/benchmarks/status` | Run in progress (indicator shown on every page) |
+| GET | `/api/benchmarks/runs` | Run history (summaries) |
+| POST | `/api/benchmarks/runs` | Start a run (409 if one is already running) |
+| GET | `/api/benchmarks/runs/:id` | Run detail |
+| GET | `/api/benchmarks/runs/:id/events` | Live progress, logs and telemetry (SSE) |
+| GET | `/api/benchmarks/runs/:id/telemetry` | The run's GPU samples |
+| GET | `/api/benchmarks/runs/:id/steps/:n/result.json` | The tool's raw result for one step |
+| POST | `/api/benchmarks/runs/:id/cancel` | Stop the run |
+| DELETE | `/api/benchmarks/runs/:id` | Delete a run |
 | WS | `/api/exec/:id` | Interactive terminal |
 
 ## Development
@@ -330,3 +393,5 @@ python3 host/gb10-tuning/test_apply.py # root-side apply script
 ## Security note
 
 The application has **no authentication** and the terminal grants a shell inside containers. The app binds to `127.0.0.1` only, cross-origin requests are refused (no CORS header is sent), and WebSocket upgrades whose `Origin` does not match the server's own host are rejected — a browser applies no CORS to WebSockets, so any page the user visited could otherwise have opened a shell in a container. None of this is authentication: intended for a local network or trusted environment; put it behind an authenticating proxy if it must leave the machine.
+
+Benchmarks start containers on the host network. The image is fixed server-side, never taken from the request; parameters go through a bounded allow-list and a shell-free `argv`; the URL and model name are validated and can't start with `-`; an optional API key is neither stored nor logged. The routes that start or stop a run require a JSON body, which a page from another site cannot send without a CORS preflight.

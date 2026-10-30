@@ -8,7 +8,7 @@ Spark Control Center est un portail web de contrôle pour une station DGX Spark 
 
 ## Fonctionnalités
 
-La barre latérale comporte quatre sections :
+La barre latérale comporte cinq sections :
 
 - **GB10** — la vue d'accueil, étiquetée dynamiquement avec le nom de la machine détectée. Réglage GPU et thermique :
   - **Réglages** : plafond d'horloge GPU, mode persistance, swap, `vm.swappiness`, monitoring thermique
@@ -23,6 +23,13 @@ La barre latérale comporte quatre sections :
   - **Pipeline d'édition** : aperçu → diff ligne à ligne → avertissements → confirmation explicite → écriture atomique préservant le propriétaire et les droits du fichier, avec un `.bak` horodaté et une vérification par hash de contenu qui refuse un aperçu si le fichier a changé entretemps. Les secrets sont masqués
   - **Gestionnaire de skills partagés** : les mêmes skills sont chargés par opencode et par Claude Code, donc les doublons entre racines sont signalés
   - **Moteur d'insights** : signale les vrais problèmes de cette machine (les règles vivent dans `backend/rules.js`) plutôt que de lister un catalogue
+- **Benchmarks** — mesure la vitesse réelle des modèles servis sur la machine, avec [AIPerf](https://github.com/ai-dynamo/aiperf) (NVIDIA ai-dynamo) :
+  - **Trois choix et c'est parti** : le serveur (vLLM, SGLang, Ollama, llama.cpp, TGI, NIM… détectés automatiquement, avec leurs modèles), le type de travail (chat, agent de code, résumé, génération longue, RAG) et la charge (un utilisateur, ou un balayage de concurrence pour trouver le meilleur compromis)
+  - **En direct** : progression palier par palier, puissance / horloge / température GPU, logs de l'outil
+  - **Des résultats lisibles** : débit, temps jusqu'au premier token, latence entre tokens, vitesse par utilisateur, efficacité en tokens par joule, distribution p50 / p90 / p99, courbes du balayage
+  - **Le plafond d'horloge GB10 vérifié sous charge** : chaque run note le plafond en vigueur et dit s'il a tenu, s'il a été ignoré par le firmware ou s'il n'a jamais été atteint — la carte GB10 affiche ces mesures
+  - **Historique et comparaison** : jusqu'à 4 runs côte à côte avec les écarts en %, et un avertissement quand ils n'ont pas tourné sur la même charge
+  - **Registre d'outils extensible** : AIPerf est le premier adaptateur (`backend/benchtools.js`)
 - **Conteneurs**
   - **Liste des conteneurs** : statut, image, politique de redémarrage, **répertoire de lancement** (bind mounts hôtes + WorkingDir) et **lien direct vers l'app** pour chaque port TCP publié
   - **Auto-détection des ports host-network** : les apps en `network_mode: host` (sans ports publiés) voient leurs ports d'écoute détectés via `/proc` (croisement inodes sockets ↔ tables TCP)
@@ -103,7 +110,7 @@ docker compose up -d --build
 `docker compose up -d --build` s'occupe de tout : il reconstruit l'image unique à partir des nouvelles sources (frontend + backend), arrête le conteneur obsolète et en démarre un nouveau, en réutilisant les réglages de `docker-compose.yml` (socket Docker, `pid: host`, réservation GPU, mappage de port).
 
 La mise à jour est sans risque pour votre environnement :
-- l'application est **sans état** (pas de base de données, aucune donnée locale à sauvegarder)
+- l'application n'a **pas de base de données** ; sa seule donnée est l'historique des benchmarks, sur l'hôte dans `/var/lib/spark-control-center/benchmarks` — il survit aux mises à jour
 - les conteneurs qu'elle gère ne **sont pas affectés** — ils continuent de tourner pendant la mise à jour
 - votre préférence de thème est stockée dans le navigateur et survit aux mises à jour
 
@@ -134,6 +141,9 @@ Aucune configuration n'est nécessaire. Variables optionnelles (via `environment
 | Variable | Défaut | Description |
 |---|---|---|
 | `PORT` | `3001` | Port interne du serveur (sert l'API et le frontend) |
+| `BENCH_DIR` | `/var/lib/spark-control-center/benchmarks` | Dossier des runs de benchmark (voir « Benchmarks ») |
+| `BENCH_PROBE_HOST` | `localhost` (`host.docker.internal` dans le compose) | Hôte par lequel l'app sonde les serveurs d'inférence |
+| `AIPERF_VERSION` | `0.13.0` | Version d'AIPerf épinglée |
 
 > Pour exposer l'UI sur un autre port que 8081, modifiez la section `ports:` du service `app` (ex: `"9090:3001"`).
 
@@ -247,6 +257,45 @@ sudo rm /usr/local/sbin/dgx-updates.sh /etc/systemd/system/dgx-updates.service /
 
 Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineInstalled: false` et une `note` expliquant l'absence de la liste des paquets — les compteurs de synthèse (qui ne dépendent pas du timer) restent inchangés.
 
+## Benchmarks
+
+### Le principe
+
+- **Chaque outil tourne dans son propre conteneur jetable**, jamais dans l'image de l'app. Au premier run, l'app construit l'image `spark-control-center/aiperf:<version>` (~1,7 Go, une seule fois ; la progression s'affiche dans le log du run). AIPerf 0.13 exige `crick`, qui n'a pas de wheel aarch64 : il est compilé dans un étage de build `python:3.12`, l'image finale part de `python:3.12-slim`.
+- **Un conteneur par palier**, en `network_mode: host` : l'URL visée est `http://localhost:<port>` de l'hôte. Il ne voit que le dossier de résultats de son palier et le cache des tokenizers.
+- **Un seul run à la fois** : deux benchmarks sur le même GPU se mesurent l'un l'autre.
+- **Télémétrie** : pendant chaque palier, l'app lit `nvidia-smi` chaque seconde (puissance, horloge, température, utilisation) et note le plafond GB10 en vigueur. D'où l'énergie, les tokens par joule et le verdict du plafond sous charge, avec les mêmes seuils que la carte GB10 — c'est le test « en conditions réelles » que la carte ne peut pas faire GPU au repos.
+- **Arrêt** : SIGINT, pour qu'AIPerf écrive ses résultats partiels ; puis un second SIGINT et SIGKILL s'il ne rend pas la main.
+- **Comparabilité** : chaque run porte une empreinte de sa charge (tailles des prompts et des réponses, nombre de requêtes, seed…). Le modèle, le serveur, le plafond et la concurrence n'en font pas partie : c'est précisément ce qu'on compare.
+
+### Stockage
+
+```
+/var/lib/spark-control-center/benchmarks/
+├── runs/<id>/run.json     # configuration, paliers, résultats normalisés, télémétrie résumée
+├── runs/<id>/log.jsonl    # log du run
+├── runs/<id>/gpu.jsonl    # échantillons GPU (1 s)
+├── runs/<id>/steps/<n>/   # fichiers bruts de l'outil (profile_export_aiperf.json…)
+└── hf-cache/              # tokenizers téléchargés (HF_HOME des conteneurs d'outils)
+```
+
+Ce dossier est monté **au même chemin** dans le conteneur de l'app : c'est le démon Docker, côté hôte, qui résout les montages des conteneurs d'outils. Supprimer un run depuis l'interface efface son dossier ; pour supprimer l'image de l'outil : `docker image rm spark-control-center/aiperf:0.13.0`.
+
+### Tokenizer
+
+AIPerf compte les tokens avec le tokenizer du modèle. `auto` prend l'identifiant du modèle quand c'est un dépôt Hugging Face (`Qwen/Qwen3-8B`, le cas de vLLM et SGLang), sinon le tokenizer intégré (tiktoken), approximatif — le cas des noms Ollama comme `llama3.2:1b` ; le run le signale. Sans accès à internet, copier un dossier de tokenizer dans `hf-cache/` et le désigner par `/hf/<dossier>`.
+
+### Ajouter un outil
+
+Un outil est une entrée de `TOOLS` dans `backend/benchtools.js` : son Dockerfile, son schéma de paramètres (le formulaire en est tiré : un paramètre qui n'a pas sa propre section apparaît sous « Advanced settings »), `buildArgv`, et `parseResult`, qui ramène ses résultats aux métriques canoniques (les tags AIPerf : `time_to_first_token`, `output_token_throughput`…).
+
+### Variables d'environnement
+
+- `BENCH_DIR` (backend) : dossier des runs. À changer **des deux côtés** du montage dans `docker-compose.yml`.
+- `BENCH_PROBE_HOST` (backend) : hôte par lequel l'app interroge `/v1/models` des serveurs détectés — `host.docker.internal` dans le compose, l'app étant sur un réseau bridge.
+- `AIPERF_VERSION` (backend) : version d'AIPerf ; la changer reconstruit l'image au run suivant.
+- `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` : s'ils sont définis pour l'app, ils sont transmis au build de l'image et aux conteneurs d'outils, `localhost` toujours exclu du proxy.
+
 ## Structure
 
 ```
@@ -262,6 +311,9 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 │   ├── updates.js      # Mises à jour système
 │   ├── hostports.js    # Détection des ports d'écoute (conteneurs host-network)
 │   ├── metrics.js      # Métriques système / GPU / stats conteneurs
+│   ├── benchmarks.js   # Benchmarks : exécution, stockage, télémétrie, API
+│   ├── benchtools.js   # Registre des outils de benchmark (adaptateur AIPerf)
+│   ├── benchtargets.js # Détection des serveurs d'inférence à benchmarker
 │   ├── *.test.js       # Suites de tests (node --test)
 │   └── fixtures/       # Fixtures de test
 ├── frontend/
@@ -306,6 +358,17 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 | GET | `/api/insights` | Résultats du moteur d'insights |
 | GET | `/api/machine` | Identité machine |
 | GET | `/api/updates` | Mises à jour système (apt) |
+| GET | `/api/benchmarks/tools` | Outils de benchmark, schéma de leurs paramètres, image prête ou non |
+| GET | `/api/benchmarks/targets` | Serveurs d'inférence détectés et leurs modèles |
+| GET | `/api/benchmarks/status` | Run en cours (indicateur affiché sur toutes les pages) |
+| GET | `/api/benchmarks/runs` | Historique des runs (résumés) |
+| POST | `/api/benchmarks/runs` | Lancer un run (409 si un run tourne déjà) |
+| GET | `/api/benchmarks/runs/:id` | Détail d'un run |
+| GET | `/api/benchmarks/runs/:id/events` | Progression, logs et télémétrie en direct (SSE) |
+| GET | `/api/benchmarks/runs/:id/telemetry` | Échantillons GPU du run |
+| GET | `/api/benchmarks/runs/:id/steps/:n/result.json` | Résultat brut de l'outil pour un palier |
+| POST | `/api/benchmarks/runs/:id/cancel` | Arrêter le run |
+| DELETE | `/api/benchmarks/runs/:id` | Supprimer un run |
 | WS | `/api/exec/:id` | Terminal interactif |
 
 ## Développement
@@ -330,3 +393,5 @@ python3 host/gb10-tuning/test_apply.py # script d'apply côté hôte
 ## Note sécurité
 
 L'application n'a **pas d'authentification** et le terminal donne un shell dans les conteneurs. L'app se lie uniquement à `127.0.0.1`, les requêtes cross-origin sont refusées (aucun en-tête CORS n'est envoyé), et les upgrades WebSocket dont l'`Origin` ne correspond pas à l'hôte du serveur sont rejetées — un navigateur n'applique pas de CORS aux WebSockets, donc n'importe quelle page visitée aurait sinon pu ouvrir un shell dans un conteneur. Rien de tout cela n'est de l'authentification : à réserver à un réseau local ou un environnement de confiance ; placez-la derrière un proxy avec authentification si elle doit sortir de la machine.
+
+Les benchmarks lancent des conteneurs en réseau hôte. L'image est figée côté serveur, jamais prise de la requête ; les paramètres passent par une liste blanche bornée et un `argv` sans shell ; l'URL et le nom du modèle sont validés et ne peuvent pas commencer par `-` ; une éventuelle clé API n'est ni stockée ni journalisée. Les routes qui lancent ou arrêtent un run exigent un corps JSON, qu'une page d'un autre site ne peut pas envoyer sans préflight CORS.

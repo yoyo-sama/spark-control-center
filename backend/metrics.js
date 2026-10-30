@@ -195,4 +195,24 @@ function getContainerStats(stats, prevSample) {
   };
 }
 
-module.exports = { getHostMetrics, getDiskMetrics, getGpuMetrics, getGpuMemoryByContainer, getContainerStats, memo };
+// One reading of GPU 0 for the benchmark telemetry sampler — deliberately not memoized:
+// the sampler runs once a second and every sample must be a fresh measurement.
+async function readGpuSample() {
+  const num = (v) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  try {
+    const { stdout } = await execFileAsync('nvidia-smi', [
+      '-i', '0',
+      '--query-gpu=clocks.gr,power.draw,temperature.gpu,utilization.gpu',
+      '--format=csv,noheader,nounits',
+    ]);
+    const [clock, power, temp, util] = stdout.trim().split(',').map((s) => s.trim());
+    return { clockMhz: num(clock), powerW: num(power), tempC: num(temp), utilPct: num(util) };
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { getHostMetrics, getDiskMetrics, getGpuMetrics, getGpuMemoryByContainer, getContainerStats, readGpuSample, memo };

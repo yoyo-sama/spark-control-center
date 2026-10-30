@@ -1,4 +1,4 @@
-import { AppWindow, Container, Cpu, Gauge, LayoutDashboard, Moon, Sun } from 'lucide-react';
+import { AppWindow, ChartNoAxesColumn, Container, Cpu, Gauge, LayoutDashboard, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../lib/theme';
 import type { View } from '../types';
 
@@ -7,9 +7,10 @@ interface Props {
   onViewChange: (view: View) => void;
   machineLabel: string;
   machineSubtitle: string;
+  benchmarkRunning?: boolean;
 }
 
-export default function Sidebar({ currentView, onViewChange, machineLabel, machineSubtitle }: Props) {
+export default function Sidebar({ currentView, onViewChange, machineLabel, machineSubtitle, benchmarkRunning }: Props) {
   const { isDark, toggle } = useTheme();
 
   return (
@@ -48,6 +49,23 @@ export default function Sidebar({ currentView, onViewChange, machineLabel, machi
         >
           <AppWindow size={16} strokeWidth={2} />
           Apps
+        </button>
+        <button
+          onClick={() => onViewChange('benchmarks')}
+          className={`w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
+            currentView === 'benchmarks'
+              ? 'bg-hover text-fg'
+              : 'text-muted hover:text-fg hover:bg-hover'
+          }`}
+        >
+          <ChartNoAxesColumn size={16} strokeWidth={2} />
+          Benchmarks
+          {benchmarkRunning && (
+            <span className="ml-auto relative flex h-2 w-2" aria-label="A benchmark is running">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-500 opacity-60" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
+            </span>
+          )}
         </button>
         <button
           onClick={() => onViewChange('dashboard')}

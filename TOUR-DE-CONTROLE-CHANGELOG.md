@@ -123,6 +123,67 @@ remplacement textuel d'une ligne comme pour `compose.yaml` ; ou s'en tenir aux c
 **Retour arrière** : `git revert` de ce commit, retirer `COMPOSE_FILE` du `.env` s'il a été posé, puis
 `docker compose up -d --build`.
 
+## 2026-10-29 — Benchmarks : AIPerf et registre d'outils
+
+Cadré en mode plan puis exécuté. Demande de l'utilisateur : pouvoir lancer des outils de benchmark, à
+commencer par AIPerf (`ai-dynamo/aiperf`), **bien intégrés dans l'interface, faciles et visuels**. Le
+besoin rejoint deux manques du dépôt : aucune mesure réelle n'existait (les chiffres de la carte du
+plafond d'horloge sont communautaires, d'où le commit `d64206f`), et le « TEST EN ATTENTE » du plafond
+plus bas réclame une vraie charge GPU, que la carte ne peut pas produire seule.
+
+**Décisions de l'utilisateur.** Outil dans un conteneur jetable (pas dans l'image de l'app) ; registre
+d'outils extensible, AIPerf seul adaptateur livré ; historique sur disque ; dès la v1, cibles
+auto-détectées, télémétrie GB10 du run et balayage de concurrence.
+
+**Faits établis en faisant tourner AIPerf 0.13.0 pour de vrai** (contre un faux serveur OpenAI, en local) :
+- avec `--artifact-dir` explicite, le résumé est à la racine, mais AIPerf en écrit aussi des copies par
+  phase sous `phases/warmup|profiling/` — le parseur les ignore explicitement ;
+- **SIGTERM tue AIPerf sans rien exporter ; SIGINT** lui fait écrire des résultats partiels
+  (`was_cancelled: true`) et rendre la main en ~1 s. Annulé avant sa phase de mesure, il peut en revanche
+  rester bloqué : un second SIGINT, puis SIGKILL — arrêt borné à ~25 s ;
+- quand toutes les requêtes échouent (serveur absent), **aucun résumé n'est écrit** et le code de sortie
+  vaut 1 : le message d'erreur du run est tiré des dernières lignes de l'outil (« Nothing answered at… ») ;
+- le tokenizer `builtin` n'est pas « zéro réseau » : tiktoken télécharge son fichier une fois — mis en
+  cache dans `hf-cache/tiktoken` ;
+- `HF_HUB_OFFLINE=1` casse le chargement d'un tokenizer local dans AIPerf 0.13 : jamais posé ;
+- **AIPerf 0.13 dépend en dur de `crick`, sans wheel Linux aarch64** : un simple `pip install` dans
+  `python:3.12-slim` échouerait sur le Spark faute de compilateur. Image en deux étages (compilation
+  dans `python:3.12`, final `python:3.12-slim`), vérifiée en forçant la compilation de crick depuis les
+  sources : construite de bout en bout par le chemin de l'app (dockerode), 1,7 Go, puis un palier joué
+  dessus.
+
+**Le déploiement GitHub n'a pas servi de modèle** : il appelle la CLI `docker`, absente de l'image (tâche
+séparée proposée). Tout passe ici par dockerode : build, création, attache, attente, suppression.
+
+**Frontière de confiance.** L'app lance des conteneurs en réseau hôte via docker.sock. L'image est figée
+dans le registre, jamais lue de la requête ; chaque paramètre passe une liste blanche bornée (clé inconnue
+= 400, booléen refusé là où un entier est attendu) ; l'`argv` est construit en code, sans shell ; URL et
+nom de modèle validés et jamais en `-…` ; tokenizer limité à `auto`, `builtin`, un id HF ou un dossier
+sous `/hf/` ; la clé API éventuelle va à l'outil mais n'est ni dans `run.json` ni dans les logs ; l'id de
+run est vérifié par regex avant tout accès disque ; lancer/arrêter exige un corps JSON (pas de POST
+cross-site sans préflight). Le conteneur d'outil ne voit que son dossier de palier et le cache tokenizers.
+
+**Comparabilité, leçon de `d64206f` appliquée.** Chaque run porte une empreinte de sa charge (tailles,
+nombre de requêtes, seed…), sans le modèle, le serveur, le plafond ni la concurrence — ce qu'on compare.
+La vue de comparaison met en gras ce qui diffère et affiche un bandeau quand les charges ne sont pas les
+mêmes.
+
+| Lot | Fichiers | Contenu |
+|---|---|---|
+| 1 | `backend/benchtools.js`, `benchtargets.js`, `benchmarks.js` (neufs) | Registre (adaptateur AIPerf : Dockerfile, schéma de paramètres, argv, parseur), détection des serveurs par sonde `/v1/models`, exécuteur un-conteneur-par-palier avec SSE, télémétrie 1 s, verdict du plafond, stockage atomique, réconciliation au démarrage. |
+| 2 | `backend/index.js`, `gb10.js`, `metrics.js`, `hostports.js` | Montage du routeur avant le 404 ; `buildFullState` exporté ; `readGpuSample()` ; résolution des ports déplacée dans `hostports.js`, partagée par `/api/containers` et la détection. |
+| 3 | `frontend/src/components/Benchmarks.tsx`, `BenchNewRun.tsx`, `BenchRunView.tsx`, `BenchHistory.tsx`, `BenchCompare.tsx`, `BenchCharts.tsx`, `LogView.tsx`, `lib/bench.ts` (neufs) | Parcours en trois choix (serveur détecté, type de travail, charge), vue en direct, résultats, historique, comparaison. Couleurs de séries validées (daltonisme, contraste) en clair et en sombre. |
+| 4 | `App.tsx`, `Sidebar.tsx`, `Gb10.tsx`, `ConfirmModal.tsx`, `DeployLog.tsx`, `types.ts`, `index.css` | Entrée de menu avec point animé pendant un run, pastille « Benchmark 2/4 » sur toutes les pages, mesures réelles et bouton « vérifier le plafond sous charge » dans la carte GB10, variante non destructive de la confirmation, log partagé. |
+| 5 | `docker-compose.yml`, `README.md`, `README.fr.md`, tests + fixtures AIPerf réelles | Montage `/var/lib/spark-control-center/benchmarks` (rw sous le parent `:ro`, vérifié), `BENCH_PROBE_HOST`. 31 tests ajoutés (85 au total). |
+
+### ⏳ À jouer sur le Spark (impossible dans le conteneur de développement, sans GPU)
+
+1. `docker compose up -d --build`, puis vérifier que `/var/lib/spark-control-center/benchmarks` existe.
+2. Benchmarks → le serveur (Ollama ou vLLM) et ses modèles sont proposés → « Quick sweep », chat.
+3. Premier run : le build de l'image aarch64 s'affiche dans le log (compilation de crick comprise).
+4. Lire le verdict du plafond sous charge et le comparer à `nvidia-smi` pendant le run : **c'est le test
+   en attente ci-dessous, enfin jouable**. Refaire le même run à un autre plafond, puis « Compare ».
+
 ## 2026-09-12 — « Spark Control Center » v1 : rubrique de configuration GB10 (famille GPU/thermique)
 
 Cadré via `/architect` puis exécuté en 4 lots parallèles. Origine : des freezes du GB10 sous charge GPU

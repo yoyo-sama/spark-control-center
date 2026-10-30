@@ -11,14 +11,15 @@ const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const { getHostMetrics, getDiskMetrics, getGpuMetrics, getGpuMemoryByContainer, getContainerStats } = require('./metrics');
-const { getContainerListeningPorts } = require('./hostports');
-const gb10Router = require('./gb10');
+const { resolveContainerPorts } = require('./hostports');
+const { router: gb10Router } = require('./gb10');
 const { router: appsRouter } = require('./apps');
 const { router: insightsRouter } = require('./insights');
 const { router: skillsRouter } = require('./skills');
 const { router: portsRouter, portBindings } = require('./ports');
 const { router: machineRouter } = require('./machine');
 const { router: updatesRouter } = require('./updates');
+const { router: benchmarksRouter, runner: benchmarkRunner } = require('./benchmarks');
 
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -39,21 +40,10 @@ function formatPorts(ports) {
   }))];
 }
 
-function formatContainer(containerInfo, inspect) {
+function formatContainer(containerInfo, inspect, publishedPorts) {
   const binds = (inspect.Mounts || [])
     .filter((m) => m.Type === 'bind')
     .map((m) => ({ source: m.Source, destination: m.Destination }));
-
-  const seen = new Set();
-  const publishedPorts = (containerInfo.Ports || [])
-    .filter((p) => p.PublicPort && p.Type === 'tcp')
-    .map((p) => ({ hostPort: p.PublicPort, containerPort: p.PrivatePort }))
-    .filter((p) => {
-      const key = `${p.hostPort}:${p.containerPort}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
 
   return {
     id: containerInfo.Id,
@@ -72,15 +62,6 @@ function formatContainer(containerInfo, inspect) {
   };
 }
 
-async function getContainerPids(container) {
-  const top = await container.top();
-  const pidIdx = top.Titles.indexOf('PID');
-  if (pidIdx === -1) return [];
-  return top.Processes
-    .map((p) => parseInt(p[pidIdx], 10))
-    .filter((n) => Number.isFinite(n));
-}
-
 // Get all containers
 app.get('/api/containers', async (req, res) => {
   try {
@@ -88,21 +69,7 @@ app.get('/api/containers', async (req, res) => {
     const containerData = await Promise.all(containers.map(async (containerInfo) => {
       const container = docker.getContainer(containerInfo.Id);
       const inspect = await container.inspect();
-      const formatted = formatContainer(containerInfo, inspect);
-      if (inspect.HostConfig.NetworkMode === 'host' && formatted.running) {
-        try {
-          const pids = await getContainerPids(container);
-          const hostPorts = getContainerListeningPorts(containerInfo.Id, pids);
-          formatted.publishedPorts = hostPorts.map((port) => ({
-            hostPort: port,
-            containerPort: port,
-            hostNetwork: true,
-          }));
-        } catch (e) {
-          /* keep publishedPorts empty on failure */
-        }
-      }
-      return formatted;
+      return formatContainer(containerInfo, inspect, await resolveContainerPorts(container, containerInfo, inspect));
     }));
     res.json(containerData);
   } catch (error) {
@@ -476,6 +443,7 @@ app.use('/api/skills', skillsRouter);
 app.use('/api/ports', portsRouter);
 app.use('/api/machine', machineRouter);
 app.use('/api/updates', updatesRouter);
+app.use('/api/benchmarks', benchmarksRouter);
 
 // JSON 404 for unknown API routes
 app.use('/api', (req, res) => {
@@ -632,3 +600,7 @@ server.on('upgrade', async (req, socket, head) => {
 server.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`);
 });
+
+// A benchmark that was running when this process stopped can't be resumed: mark it and
+// remove its container.
+benchmarkRunner.reconcile();
