@@ -744,6 +744,15 @@ router.get('/:id', async (req, res) => {
   res.json({ ...base, ...(await app.read()) });
 });
 
+// Only the agents expose files this way, each looked up by key in its own list.
+router.get('/:id/file', (req, res) => {
+  const app = APPS.find((a) => a.id === req.params.id);
+  if (!app || !app.readFile) return res.status(404).json({ error: 'Unknown app' });
+  const r = app.readFile(String(req.query.key || ''));
+  if (r.error) return res.status(r.status || 400).json({ error: r.error });
+  res.json(r);
+});
+
 router.post('/:id/preview', async (req, res) => {
   const app = APPS.find((a) => a.id === req.params.id);
   if (!app) return res.status(404).json({ error: 'Unknown app' });

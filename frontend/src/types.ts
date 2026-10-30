@@ -445,10 +445,37 @@ export interface AgentRuntime {
   nemoclaw: NemoclawState;
 }
 
-export interface MdFileInfo {
+export interface AgentMarkdownLimit {
+  chars: number;
+  setting: string;
+  // true when the config does not set it and the documented default applies
+  isDefault: boolean;
+  effect: string;
+}
+
+export interface AgentMarkdownFile {
+  // opaque: the backend looks it up in its own list, never turns it into a path
+  key: string;
+  name: string;
+  what: string;
   path: string;
   exists: boolean;
+  symlink: string | null;
   lines: number;
+  chars: number;
+  limit: AgentMarkdownLimit | null;
+  creatable: boolean;
+}
+
+export interface AgentMarkdownGroup {
+  id: string;
+  label: string;
+  path: string;
+  visible: boolean;
+  files: AgentMarkdownFile[];
+  // older daily notes left out of the list
+  hidden: number;
+  total: { chars: number; limit: AgentMarkdownLimit } | null;
 }
 
 export interface AgentSkill {
@@ -495,7 +522,6 @@ export interface OpenclawStandalone {
     apiKeySet: boolean;
     models: Array<{ id: string; contextWindow: number | null; maxTokens: number | null }>;
   }>;
-  workspace?: { path: string; visible: boolean; files: MdFileInfo[] };
   skills?: AgentSkillRoot[];
   config?: Record<string, unknown>;
 }
@@ -514,7 +540,6 @@ export interface HermesStandalone {
   compression?: { enabled: boolean | null; threshold: number | null };
   toolsets?: string[] | null;
   envKeys?: string[] | null;
-  identity?: MdFileInfo[];
   profiles?: string[];
   skills?: AgentSkillRoot[];
   config?: Record<string, unknown>;
@@ -527,6 +552,7 @@ interface AgentStateBase {
   reason: string;
   projectDir: string;
   runtime: AgentRuntime;
+  markdown: AgentMarkdownGroup[];
   ollama: OpencodeOllamaInfo;
 }
 

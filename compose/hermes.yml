@@ -2,14 +2,15 @@
 # À activer via COMPOSE_FILE dans .env (voir .env.example), seulement si ~/.hermes existe :
 # create_host_path: false fait échouer le démarrage plutôt que de laisser Docker créer un
 # ~/.hermes vide appartenant à root, qui casserait ensuite l'installation de Hermes.
-# Lecture seule. De .env, l'app ne lit que les NOMS de variables ; auth.json et state.db
-# (tout l'historique des conversations) ne sont jamais lus.
+# Lecture-écriture pour les seuls SOUL.md et memories/{MEMORY,USER}.md (profils compris),
+# qu'on édite avec aperçu, diff et sauvegarde .bak. config.yaml n'est jamais écrit ; de .env
+# l'app ne lit que les NOMS de variables ; auth.json et state.db (tout l'historique des
+# conversations) ne sont jamais lus.
 services:
   app:
     volumes:
       - type: bind
         source: ${SPARK_HOME:-$HOME}/.hermes
         target: ${SPARK_HOME:-$HOME}/.hermes
-        read_only: true
         bind:
           create_host_path: false

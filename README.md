@@ -19,7 +19,7 @@ The sidebar has four sections:
   - **ComfyUI**: the command-line flags in its `compose.yaml`, and its user scripts
   - **opencode** (`opencode.json`): default model, `limit.context`, compaction, skill paths/urls
   - **Claude Code**: settings files, plugins, MCP servers, hooks — read-only except a short whitelist of harmless keys
-  - **OpenClaw** and **Hermes Agent**, with or without **NemoClaw** — fully read-only (exploration, see below): how each agent is deployed (on the host, in a NemoClaw sandbox, or both, plus its processes seen in `/proc`), its model checked against Ollama, OpenClaw's channels and who may DM the agent, Hermes' terminal backend, skills, and the commands to change them
+  - **OpenClaw** and **Hermes Agent**, with or without **NemoClaw** (exploration, see below): how each agent is deployed (on the host, in a NemoClaw sandbox, or both, plus its processes seen in `/proc`), its model checked against Ollama, OpenClaw's channels and who may DM the agent, Hermes' terminal backend, skills. Their **markdown files** are editable — OpenClaw's workspace files (`AGENTS.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`, `HEARTBEAT.md`, `MEMORY.md`, daily notes in `memory/`), Hermes' `SOUL.md` and `memories/{MEMORY,USER}.md` per profile — with each agent's size limit shown; their config stays read-only, with the commands to change it
   - **Edit pipeline**: preview → line diff → warnings → explicit confirmation → atomic write preserving the file's owner and mode, with a timestamped `.bak` and a content-hash check that refuses a preview if the file changed meanwhile. Secrets are masked
   - **Shared skills manager**: the same skills are loaded by both opencode and Claude Code, so duplicates across roots are flagged
   - **Insight engine**: flags the real problems of this machine (rules live in `backend/rules.js`) rather than listing a catalogue
@@ -139,7 +139,7 @@ No configuration is required. Optional variables (through the `environment:` sec
 
 ### OpenClaw, Hermes Agent, NemoClaw
 
-Their directories are **not mounted by default**: mounting a directory that does not exist makes Docker create it empty and owned by root, which then breaks the tool's own installer. Each one has an overlay in `compose/` (read-only, `create_host_path: false`), to list in `COMPOSE_FILE` in `.env` for the tools actually installed:
+Their directories are **not mounted by default**: mounting a directory that does not exist makes Docker create it empty and owned by root, which then breaks the tool's own installer. Each one has an overlay in `compose/` (`create_host_path: false`), to list in `COMPOSE_FILE` in `.env` for the tools actually installed. The OpenClaw and Hermes overlays are read-write so their markdown files can be edited — the backend writes nothing else there; the NemoClaw one is read-only:
 
 ```bash
 # OpenClaw on the host, plus NemoClaw
@@ -296,6 +296,7 @@ Without the timer installed, `/api/updates` still returns 200 with `pipelineInst
 | POST | `/api/gb10/reapply` | Re-trigger the host-side apply |
 | GET | `/api/apps` | App registry summary |
 | GET | `/api/apps/:id` | App detail (detection, facts) |
+| GET | `/api/apps/:id/file?key=` | Read one of an agent's markdown files (OpenClaw, Hermes) |
 | POST | `/api/apps/:id/preview` | Preview an app config edit (diff + warnings) |
 | POST | `/api/apps/:id/apply` | Apply a previewed edit |
 | GET | `/api/skills` | Skills list across roots |

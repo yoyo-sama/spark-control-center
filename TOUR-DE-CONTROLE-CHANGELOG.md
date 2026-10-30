@@ -1,5 +1,59 @@
 # Tour de contrôle — changelog
 
+## 2026-10-30 — Édition des fichiers markdown d'OpenClaw et de Hermes
+
+Suite de l'exploration. La config des deux agents reste en lecture seule ; leurs fichiers markdown — ce
+qu'on dit à l'agent au début de chaque session — deviennent éditables. Ils changent ce que l'agent se fait
+dire, pas ce qu'il a le droit d'exécuter : le même statut qu'un `SKILL.md`, que l'app édite déjà, et le
+même pipeline (aperçu, diff, confirmation, contrôle de hash, `.bak` horodaté, propriétaire et mode conservés).
+
+**Les fichiers.** OpenClaw : dans chaque workspace (celui par défaut, plus ceux que déclarent les agents de
+`agents.list`), `AGENTS.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`, `HEARTBEAT.md`, `MEMORY.md`,
+`BOOTSTRAP.md`, et les 31 dernières notes quotidiennes de `memory/`. Hermes : `SOUL.md`,
+`memories/MEMORY.md` et `memories/USER.md`, pour le profil par défaut et chaque profil de `profiles/`. Un
+fichier absent peut être créé (`memories/` compris), sauf `BOOTSTRAP.md` : c'est le rituel du premier
+lancement, que l'agent supprime une fois fait.
+
+**Seuls ces fichiers sont atteignables.** Une requête désigne un fichier par une clé, cherchée dans la liste
+construite côté backend ; elle n'est jamais transformée en chemin. `default:../openclaw.json`,
+`default:credentials/…` ou `default:.env` répondent 404, testés. Un lien symbolique est refusé : l'écriture
+par renommage atomique remplacerait le lien par un fichier ordinaire et casserait silencieusement une
+synchronisation montée par l'utilisateur.
+
+**Les limites de chaque agent, affichées et vérifiées à l'aperçu.** OpenClaw tronque chaque fichier
+d'amorçage au-delà de `bootstrapMaxChars` (20 000 par défaut) et l'ensemble au-delà de
+`bootstrapTotalMaxChars` (60 000). Hermes plafonne `MEMORY.md` à `memory_char_limit` (2 200) et `USER.md` à
+`user_char_limit` (1 375) ; au-delà, son outil mémoire refuse toute nouvelle entrée jusqu'à ce qu'on
+repasse dessous. La valeur du `config.yaml` du profil l'emporte sur le défaut documenté, et l'interface dit
+laquelle s'applique. Chaque limite est comptée comme le compte l'agent qui l'applique : en points de code
+pour Hermes (Python), en unités UTF-16 pour OpenClaw (JavaScript) — un emoji vaut 1 d'un côté, 2 de l'autre.
+Dépasser avertit, ne bloque pas.
+
+**L'agent écrit aussi dans ces fichiers.** Sa mémoire surtout. Si l'agent réécrit le fichier entre l'aperçu et
+la confirmation, l'écriture est refusée au lieu d'écraser ce qu'il vient d'écrire — c'est le contrôle de hash
+existant, testé sur ce cas précis.
+
+**Un diff lisible pour de la prose.** `buildLineDiff` compare ligne à ligne par position, ce qui convient à du
+JSON réécrit clé par clé mais, sur du texte, marque comme modifié tout ce qui suit la première ligne insérée.
+Les fichiers markdown ont leur propre diff : préfixe et suffixe communs retirés, plus longue sous-séquence
+commune sur le reste, échange de bloc au-delà d'un million de cellules.
+
+**Montages.** `compose/openclaw.yml` et `compose/hermes.yml` passent en lecture-écriture ; la liste des
+fichiers accessibles reste fixée dans `backend/agents.js`, pas par le montage. `compose/nemoclaw.yml` reste en
+lecture seule. Sous NemoClaw, ces fichiers vivent dans le sandbox : l'onglet renvoie vers
+`nemoclaw <nom> connect`.
+
+**Vérifié.** 77 tests backend verts (9 nouveaux) : listes et limites, clés hors liste refusées, diff d'une
+insertion réduit à une ligne, aperçu sans écriture, propriétaire et mode conservés, `.bak` fidèle, conflit
+quand l'agent réécrit entre-temps, création avec le propriétaire du répertoire, avertissements de limite
+(décompte en points de code compris), refus de lien symbolique, de contenu inchangé, d'octet NUL et de taille
+excessive. Dans Chromium sur les fixtures : édition d'`AGENTS.md` de bout en bout (diff d'une ligne, fichier
+écrit, `.bak` créé), création de `USER.md` côté Hermes, liste rechargée. Build et lint propres.
+
+**À vérifier sur la vraie machine.** Les limites et la liste des fichiers d'amorçage viennent des docs
+OpenClaw et Hermes ; le chemin des profils Hermes (`profiles/<nom>/`) d'une source tierce. Un workspace
+OpenClaw configuré hors de `~/.openclaw` n'est pas visible : l'interface le dit, il faudrait le monter en plus.
+
 ## 2026-10-30 — Exploration : OpenClaw et Hermes Agent dans Apps, avec ou sans NemoClaw
 
 Branche d'exploration. La rubrique Apps gère opencode et Claude Code ; la question était de savoir comment y

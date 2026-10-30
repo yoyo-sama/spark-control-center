@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Loader2, TriangleAlert } from 'lucide-react';
-import type { AgentRuntime, AgentSkillRoot, MdFileInfo } from '../types';
+import EditConfirm from './EditConfirm';
+import type { AgentMarkdownFile, AgentMarkdownGroup, AgentRuntime, AgentSkillRoot, PreviewResult } from '../types';
 
 const API_BASE = '/api';
 
@@ -35,10 +36,12 @@ export function Row({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-// Same loading / error shell as the other panels, around a render function.
-export function AgentLoader<T>({ appId, children }: { appId: string; children: (state: T) => ReactNode }) {
+// Same loading / error shell as the other panels, around a render function. reload keeps
+// the current state on screen while it fetches: the confirmation modal must survive it.
+export function AgentLoader<T>({ appId, children }: { appId: string; children: (state: T, reload: () => void) => ReactNode }) {
   const [state, setState] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     fetch(`${API_BASE}/apps/${appId}`)
@@ -48,7 +51,7 @@ export function AgentLoader<T>({ appId, children }: { appId: string; children: (
         setState(data);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load the app'));
-  }, [appId]);
+  }, [appId, version]);
 
   if (error) {
     return (
@@ -64,7 +67,7 @@ export function AgentLoader<T>({ appId, children }: { appId: string; children: (
       </div>
     );
   }
-  return <>{children(state)}</>;
+  return <>{children(state, () => setVersion((v) => v + 1))}</>;
 }
 
 export function ErrorBox({ children }: { children: ReactNode }) {
@@ -101,16 +104,201 @@ export function Commands({ title, note, lines }: { title: string; note?: ReactNo
   );
 }
 
-export function MdFiles({ files }: { files: MdFileInfo[] }) {
+const buttonClass =
+  'px-3 h-8 rounded-lg border border-line text-xs font-medium hover:bg-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5';
+
+// Each limit counted the way the agent enforcing it counts: Hermes is Python (code points),
+// OpenClaw is JavaScript (UTF-16 units). The backend's figure is the one that decides.
+function countChars(agent: 'openclaw' | 'hermes', s: string) {
+  return agent === 'hermes' ? Array.from(s).length : s.length;
+}
+
+function CharCount({ chars, limit }: { chars: number; limit: AgentMarkdownFile['limit'] }) {
+  const over = limit !== null && chars > limit.chars;
   return (
-    <ul className="space-y-1">
-      {files.map((f) => (
-        <li key={f.path} className="flex items-center justify-between gap-3">
-          <span className="text-xs font-mono text-muted truncate">{f.path}</span>
-          {f.exists ? <span className="text-xs text-muted whitespace-nowrap">{f.lines} lines</span> : <Pill tone="muted">absent</Pill>}
-        </li>
-      ))}
-    </ul>
+    <span className={`text-xs whitespace-nowrap ${over ? 'text-amber-600 dark:text-amber-400' : 'text-muted'}`}>
+      {chars.toLocaleString()}
+      {limit && ` / ${limit.chars.toLocaleString()}`} chars
+    </span>
+  );
+}
+
+interface Editing {
+  file: AgentMarkdownFile;
+  original: string;
+  content: string;
+}
+
+// The prose the agent is told: editable, through the same preview → diff → confirm pipeline
+// as every other write in this app. Files are named by key; the backend owns the list.
+export function MarkdownFiles({
+  appId,
+  agent,
+  groups,
+  sandboxes,
+  onChanged,
+}: {
+  appId: string;
+  agent: 'openclaw' | 'hermes';
+  groups: AgentMarkdownGroup[];
+  sandboxes: number;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<PreviewResult | null>(null);
+
+  const open = async (file: AgentMarkdownFile) => {
+    setOpening(file.key);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/apps/${appId}/file?key=${encodeURIComponent(file.key)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to read the file');
+      setEditing({ file, original: data.content, content: data.content });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read the file');
+    } finally {
+      setOpening(null);
+    }
+  };
+
+  const runPreview = async () => {
+    if (!editing) return;
+    setPreviewing(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/apps/${appId}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: 'markdown', key: editing.file.key, content: editing.content }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to preview');
+      setPreview(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to preview');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  return (
+    <div className={cardClass}>
+      <h3 className="text-sm font-semibold tracking-tight mb-1">Markdown files</h3>
+      <p className="text-xs text-muted mb-3">
+        What the agent is told at the start of each session. Every save shows a diff first, keeps a timestamped .bak, and
+        is refused if the agent rewrote the file in the meantime.
+      </p>
+
+      {groups.length === 0 && <p className="text-sm text-muted">No standalone install: no file to edit on the host.</p>}
+
+      <div className="space-y-4">
+        {groups.map((g) => (
+          <div key={g.id}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium">{g.label}</span>
+              {g.total && <CharCount chars={g.total.chars} limit={g.total.limit} />}
+            </div>
+            <p className="text-xs font-mono text-muted mb-1.5 break-all">{g.path}</p>
+            {!g.visible ? (
+              <Warning>Not visible from the container: a directory outside the mounted one must be mounted as well.</Warning>
+            ) : (
+              <ul className="divide-y divide-line">
+                {g.files.map((f) => (
+                  <li key={f.key} className="flex items-center justify-between gap-3 py-1.5">
+                    <span className="min-w-0 truncate">
+                      <span className={`text-sm font-mono ${f.exists ? '' : 'text-muted'}`}>{f.name}</span>
+                      <span className="text-xs text-muted ml-2">{f.what}</span>
+                    </span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      {f.symlink ? (
+                        <span title={f.symlink}>
+                          <Pill tone="muted">symlink</Pill>
+                        </span>
+                      ) : f.exists ? (
+                        <CharCount chars={f.chars} limit={f.limit} />
+                      ) : (
+                        <Pill tone="muted">absent</Pill>
+                      )}
+                      {!f.symlink && (f.exists || f.creatable) && (
+                        <button
+                          onClick={() => open(f)}
+                          disabled={opening !== null || editing?.file.key === f.key}
+                          className={buttonClass}
+                        >
+                          {opening === f.key && <Loader2 size={12} strokeWidth={2} className="animate-spin" />}
+                          {f.exists ? 'Edit' : 'Create'}
+                        </button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+                {g.hidden > 0 && <li className="text-xs text-muted py-1.5">{g.hidden} older daily notes not listed.</li>}
+              </ul>
+            )}
+
+            {editing && g.files.some((f) => f.key === editing.file.key) && (
+              <div className="mt-2 rounded-lg border border-line p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className="text-sm font-mono">{editing.file.name}</span>
+                  <CharCount chars={countChars(agent, editing.content)} limit={editing.file.limit} />
+                </div>
+                <textarea
+                  value={editing.content}
+                  onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+                  rows={18}
+                  spellCheck={false}
+                  className="w-full p-2.5 rounded-lg border border-line bg-base text-xs font-mono leading-relaxed"
+                />
+                {editing.file.limit && (
+                  <p className="text-xs text-muted mt-1">
+                    Limit: {editing.file.limit.setting} = {editing.file.limit.chars}
+                    {editing.file.limit.isDefault ? ' (default)' : ''}. Above it, {editing.file.limit.effect.charAt(0).toLowerCase() + editing.file.limit.effect.slice(1)}.
+                  </p>
+                )}
+                <div className="flex items-center gap-2 mt-2">
+                  <button onClick={runPreview} disabled={previewing || editing.content === editing.original} className={buttonClass}>
+                    {previewing && <Loader2 size={12} strokeWidth={2} className="animate-spin" />}
+                    Preview
+                  </button>
+                  <button onClick={() => setEditing(null)} className={buttonClass}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {sandboxes > 0 && (
+        <p className="text-xs text-muted mt-3">
+          The files of the NemoClaw sandboxes live inside them, out of reach from here: edit them after{' '}
+          <code className="font-mono">nemoclaw &lt;name&gt; connect</code>.
+        </p>
+      )}
+
+      {error && (
+        <div className="mt-3">
+          <ErrorBox>{error}</ErrorBox>
+        </div>
+      )}
+
+      {preview && (
+        <EditConfirm
+          appId={appId}
+          preview={preview}
+          onClose={() => setPreview(null)}
+          onApplied={() => {
+            setEditing(null);
+            onChanged();
+          }}
+        />
+      )}
+    </div>
   );
 }
 

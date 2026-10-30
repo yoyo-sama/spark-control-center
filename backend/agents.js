@@ -1,5 +1,5 @@
 // OpenClaw and Hermes Agent, installed straight on the host ("standalone") or running
-// inside a NemoClaw sandbox. READ-ONLY on purpose, unlike opencode and Claude Code:
+// inside a NemoClaw sandbox. Their CONFIG is read-only on purpose, unlike opencode's:
 //  - standalone, both config files decide what an agent reachable from messaging apps may
 //    do on this machine (OpenClaw channels/dmPolicy, Hermes terminal.backend), and this app
 //    has no authentication — the same boundary as Claude Code's permissions and hooks;
@@ -8,12 +8,14 @@
 //    round-trip apps.js relies on;
 //  - under NemoClaw the live config is not on the host at all: it sits in the OpenShell
 //    sandbox and belongs to the agent. ~/.nemoclaw only holds the sandbox registry.
+// Their markdown files (identity, instructions, memory) are editable: see the section below.
 // Never read, only ever tested for existence at most: ~/.openclaw/credentials, auth-profiles,
 // ~/.hermes/{auth.json,state.db} and the VALUES of ~/.hermes/.env, ~/.nemoclaw/credentials.json.
 // ~/.local/state/nemoclaw (gateway database, mTLS keys, JWT signing material) is not even mounted.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const Docker = require('dockerode');
 const JSON5 = require('json5');
 const YAML = require('yaml');
@@ -71,15 +73,6 @@ function scrub(v, key) {
   }
   if (typeof v === 'string' && /^[a-z][a-z0-9+.-]*:\/\/([^/?#\s]*@|[^?#\s]*\?)/i.test(v)) return safeUrl(v);
   return v;
-}
-
-// `wc -l` semantics, like agentsFileInfo() in apps.js.
-function mdInfo(file) {
-  try {
-    return { path: file, exists: true, lines: fs.readFileSync(file, 'utf8').split('\n').length - 1 };
-  } catch {
-    return { path: file, exists: false, lines: 0 };
-  }
 }
 
 function expandHome(p, home) {
@@ -407,16 +400,26 @@ function openclawProviders(c) {
     }));
 }
 
-const WORKSPACE_FILES = ['AGENTS.md', 'SOUL.md', 'USER.md', 'IDENTITY.md', 'TOOLS.md', 'HEARTBEAT.md', 'MEMORY.md'];
+// The default workspace, plus any agent of agents.list that declares its own.
+function openclawWorkspaces(c) {
+  const home = path.dirname(openclawDir());
+  const defaults = (c.agents && c.agents.defaults) || {};
+  const out = [{ id: 'default', path: expandHome(typeof defaults.workspace === 'string' ? defaults.workspace : '~/.openclaw/workspace', home) }];
+  for (const a of c.agents && Array.isArray(c.agents.list) ? c.agents.list : []) {
+    if (!a || typeof a.workspace !== 'string') continue;
+    const p = expandHome(a.workspace, home);
+    if (!out.some((w) => w.path === p)) out.push({ id: String(a.id), path: p });
+  }
+  return out;
+}
 
 function standaloneOpenclaw(cfg, ollama) {
   if (!cfg.parsed) return { configFile: cfg.file, error: cfg.error };
   const c = cfg.parsed;
-  const home = path.dirname(openclawDir());
   const defaults = (c.agents && c.agents.defaults) || {};
   const { primary, fallbacks } = openclawModel(c);
   const g = c.gateway || {};
-  const workspace = expandHome(typeof defaults.workspace === 'string' ? defaults.workspace : '~/.openclaw/workspace', home);
+  const workspace = openclawWorkspaces(c)[0].path;
   return {
     configFile: cfg.file,
     error: null,
@@ -433,11 +436,6 @@ function standaloneOpenclaw(cfg, ollama) {
       .map((a) => ({ id: String(a.id), model: typeof a.model === 'string' ? a.model : (a.model && a.model.primary) || null })),
     channels: openclawChannels(c),
     providers: openclawProviders(c),
-    workspace: {
-      path: workspace,
-      visible: fs.existsSync(workspace),
-      files: WORKSPACE_FILES.map((f) => mdInfo(path.join(workspace, f))).filter((f) => f.exists),
-    },
     skills: [skillRoot('managed', path.join(openclawDir(), 'skills'), 1), skillRoot('workspace', path.join(workspace, 'skills'), 1)],
     config: apps().mask(scrub(c)),
   };
@@ -449,6 +447,7 @@ async function readOpenclaw() {
   return {
     runtime: await runtimeFor('openclaw', cfg.exists),
     standalone: cfg.exists ? standaloneOpenclaw(cfg, ollama) : null,
+    markdown: openclawMarkdown(cfg),
     ollama,
   };
 }
@@ -468,10 +467,11 @@ async function openclawFacts() {
   };
 }
 
-function previewOpenclaw() {
+function previewOpenclaw(body) {
+  if (body && body.target === 'markdown') return previewMarkdown(openclawMarkdown(openclawConfig()), body, countUnits, OPENCLAW_MD_COST);
   return {
     error:
-      'OpenClaw is read-only from here. openclaw.json is JSON5 that the gateway hot-reloads and refuses to start on ' +
+      'OpenClaw\'s config is read-only from here (its markdown files are not). openclaw.json is JSON5 that the gateway hot-reloads and refuses to start on ' +
       'if one key is wrong, and it decides who may message an agent able to act on this machine — this app has no ' +
       'authentication. Use `openclaw config set` on the host, or inside the sandbox (`nemoclaw <name> connect`) under NemoClaw.',
   };
@@ -558,7 +558,6 @@ function standaloneHermes(cfg, ollama) {
     },
     toolsets: Array.isArray(c.toolsets) ? c.toolsets.map(String) : null,
     envKeys: envKeys(path.join(dir, '.env')),
-    identity: [mdInfo(path.join(dir, 'SOUL.md')), mdInfo(path.join(dir, 'memories', 'MEMORY.md')), mdInfo(path.join(dir, 'memories', 'USER.md'))],
     profiles: listDirs(path.join(dir, 'profiles')),
     skills: [skillRoot('hermes', path.join(dir, 'skills'), 2)],
     config: apps().mask(scrub(c)),
@@ -571,6 +570,7 @@ async function readHermes() {
   return {
     runtime: await runtimeFor('hermes', cfg.exists),
     standalone: cfg.exists ? standaloneHermes(cfg, ollama) : null,
+    markdown: hermesMarkdown(),
     ollama,
   };
 }
@@ -583,13 +583,330 @@ async function hermesFacts() {
   return { model: model.default, pointsAtOllama, served: isServed };
 }
 
-function previewHermes() {
+function previewHermes(body) {
+  if (body && body.target === 'markdown') return previewMarkdown(hermesMarkdown(), body, countCodePoints, HERMES_MD_COST);
   return {
     error:
-      'Hermes is read-only from here. config.yaml is commented YAML, which this app never re-serializes, and ' +
+      'Hermes\' config is read-only from here (its markdown files are not). config.yaml is commented YAML, which this app never re-serializes, and ' +
       'terminal.backend decides where the agent runs its shell commands — this app has no authentication. ' +
       'Use `hermes config set` on the host, or `nemohermes` / `nemoclaw <name> connect` under NemoClaw.',
   };
+}
+
+// ---------- markdown files ----------
+
+// The prose both agents put in their system prompt: identity, instructions, memory. Unlike
+// their config these ARE editable — they change what the agent is told, not what it may
+// execute: the same footing as a skill's SKILL.md, and the same pipeline (preview, diff,
+// confirmation, hash check, timestamped backup). A request names a file by its key, looked
+// up in the list built below: a key is never turned into a path, so only these files exist.
+// Under NemoClaw they live inside the sandbox, out of reach from here like the config.
+
+const MAX_MD = 256 * 1024;
+const MD_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+const DAILY_SHOWN = 31;
+
+// Injected at the start of every session. BOOTSTRAP.md is the first-run ritual, deleted once
+// done: editable while it exists, never re-created from here.
+const OPENCLAW_BOOTSTRAP = [
+  { name: 'AGENTS.md', what: 'Operating instructions' },
+  { name: 'SOUL.md', what: 'Persona, tone and boundaries' },
+  { name: 'USER.md', what: 'Who the user is' },
+  { name: 'IDENTITY.md', what: 'The agent\'s name and character' },
+  { name: 'TOOLS.md', what: 'Notes on local tools and conventions' },
+  { name: 'HEARTBEAT.md', what: 'Checklist for heartbeat runs' },
+  { name: 'MEMORY.md', what: 'Curated long-term memory' },
+  { name: 'BOOTSTRAP.md', what: 'First-run ritual', creatable: false },
+];
+
+// Defaults from the OpenClaw docs; the config wins when it sets them.
+const OPENCLAW_MAX_CHARS = 20000;
+const OPENCLAW_TOTAL_MAX_CHARS = 60000;
+
+const HERMES_FILES = [
+  { rel: 'SOUL.md', what: 'Identity, first slot of the system prompt' },
+  { rel: path.join('memories', 'MEMORY.md'), what: 'The agent\'s own notes: conventions, quirks, lessons', limitKey: 'memory_char_limit', defaultLimit: 2200 },
+  { rel: path.join('memories', 'USER.md'), what: 'What the agent knows about the user', limitKey: 'user_char_limit', defaultLimit: 1375 },
+];
+
+const OPENCLAW_MD_COST =
+  'Read at the start of each session: running sessions keep the old text. The agent can rewrite this file itself — ' +
+  'if it does before you apply, the apply is refused rather than overwriting it.';
+const HERMES_MD_COST =
+  'Loaded as a frozen snapshot at session start: running sessions keep the old text. The agent can rewrite its ' +
+  'memories itself — if it does before you apply, the apply is refused rather than overwriting them.';
+
+// Python's len() counts code points, JavaScript's .length UTF-16 units: each limit is counted
+// the way the agent enforcing it counts.
+const countUnits = (s) => s.length;
+const countCodePoints = (s) => Array.from(s).length;
+
+function limitFrom(value, fallback, setting, effect) {
+  const set = Number.isInteger(value) && value > 0;
+  return { chars: set ? value : fallback, setting, isDefault: !set, effect };
+}
+
+// Content is read to count it: these files are small, and the count is what the limits are about.
+function mdEntry({ key, base, rel, what, creatable, limit, count }) {
+  const file = path.join(base, rel);
+  let st = null;
+  try {
+    st = fs.lstatSync(file);
+  } catch {
+    // absent
+  }
+  let content = null;
+  if (st && st.isFile()) {
+    try {
+      content = fs.readFileSync(file, 'utf8');
+    } catch {
+      // unreadable: listed, not counted
+    }
+  }
+  let symlink = null;
+  if (st && st.isSymbolicLink()) {
+    try {
+      symlink = fs.realpathSync(file);
+    } catch {
+      symlink = fs.readlinkSync(file);
+    }
+  }
+  return {
+    key,
+    name: rel,
+    what,
+    path: file,
+    exists: !!st,
+    symlink,
+    lines: content === null ? 0 : content.split('\n').length - 1,
+    chars: content === null ? 0 : count(content),
+    limit,
+    creatable: !st && creatable !== false,
+  };
+}
+
+function dailyNotes(dir) {
+  try {
+    return fs.readdirSync(dir).filter((f) => MD_NAME_RE.test(f)).sort().reverse();
+  } catch {
+    return [];
+  }
+}
+
+function openclawMarkdown(cfg) {
+  if (!cfg.exists) return [];
+  const c = cfg.parsed || {};
+  const defaults = (c.agents && c.agents.defaults) || {};
+  const perFile = limitFrom(defaults.bootstrapMaxChars, OPENCLAW_MAX_CHARS, 'bootstrapMaxChars',
+    'OpenClaw truncates it when injecting it into the system prompt');
+  const total = limitFrom(defaults.bootstrapTotalMaxChars, OPENCLAW_TOTAL_MAX_CHARS, 'bootstrapTotalMaxChars',
+    'OpenClaw truncates the workspace files when injecting them into the system prompt');
+  return openclawWorkspaces(c).map((w) => {
+    const visible = fs.existsSync(w.path);
+    const notes = visible ? dailyNotes(path.join(w.path, 'memory')) : [];
+    const files = !visible
+      ? []
+      : [
+          ...OPENCLAW_BOOTSTRAP.map((f) =>
+            mdEntry({ key: `${w.id}:${f.name}`, base: w.path, rel: f.name, what: f.what, creatable: f.creatable, limit: perFile, count: countUnits })
+          ).map((f) => ({ ...f, inTotal: true })),
+          // Searched by the memory tool, never injected: no limit applies.
+          ...notes.slice(0, DAILY_SHOWN).map((n) =>
+            mdEntry({ key: `${w.id}:memory/${n}`, base: w.path, rel: path.join('memory', n), what: 'Daily note', creatable: false, limit: null, count: countUnits })
+          ),
+        ];
+    return {
+      id: w.id,
+      label: w.id === 'default' ? 'Workspace' : `Workspace of agent ${w.id}`,
+      path: w.path,
+      visible,
+      files,
+      hidden: Math.max(0, notes.length - DAILY_SHOWN),
+      total: { chars: files.filter((f) => f.inTotal).reduce((n, f) => n + f.chars, 0), limit: total },
+    };
+  });
+}
+
+function yamlFile(file) {
+  try {
+    const v = YAML.parse(fs.readFileSync(file, 'utf8'));
+    return v && typeof v === 'object' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+// The default home plus each profile, which carries its own SOUL.md, memories and config.
+function hermesMarkdown() {
+  const dir = hermesDir();
+  const homes = [
+    { id: 'default', label: 'Default profile', path: dir },
+    ...listDirs(path.join(dir, 'profiles')).map((p) => ({ id: `profile/${p}`, label: `Profile ${p}`, path: path.join(dir, 'profiles', p) })),
+  ];
+  return homes.map((h) => {
+    const visible = fs.existsSync(h.path);
+    const conf = (visible && yamlFile(path.join(h.path, 'config.yaml'))) || {};
+    const memory = conf.memory && typeof conf.memory === 'object' ? conf.memory : {};
+    const files = !visible
+      ? []
+      : HERMES_FILES.map((f) =>
+          mdEntry({
+            key: `${h.id}:${f.rel}`,
+            base: h.path,
+            rel: f.rel,
+            what: f.what,
+            limit: f.limitKey
+              ? limitFrom(memory[f.limitKey], f.defaultLimit, f.limitKey, 'Hermes\' memory tool refuses every new entry until it is back under the limit')
+              : null,
+            count: countCodePoints,
+          })
+        );
+    return { id: h.id, label: h.label, path: h.path, visible, files, hidden: 0, total: null };
+  });
+}
+
+function findMarkdown(groups, key) {
+  for (const g of groups) {
+    const f = g.files.find((x) => x.key === key);
+    if (f) return { group: g, file: f };
+  }
+  return null;
+}
+
+function symlinkError(f) {
+  return `${f.path} is a symlink to ${f.symlink}: edit the target instead — writing here would replace the link with a plain file.`;
+}
+
+function readMarkdown(groups, key) {
+  const found = findMarkdown(groups, key);
+  if (!found) return { error: `Unknown file: ${key}`, status: 404 };
+  const f = found.file;
+  if (f.symlink) return { error: symlinkError(f), status: 409 };
+  if (!f.exists) return { ...f, content: '' };
+  if (fs.statSync(f.path).size > MAX_MD) return { error: `${f.path} exceeds ${MAX_MD} bytes`, status: 413 };
+  return { ...f, content: fs.readFileSync(f.path, 'utf8') };
+}
+
+// buildLineDiff compares index by index, which suits JSON keys replaced in place; prose gains
+// and loses lines, and that would mark everything below the first insertion as changed.
+// Common prefix and suffix trimmed, LCS on what remains, a plain block swap past a size cap.
+function lineDiff(oldLines, newLines) {
+  let pre = 0;
+  while (pre < oldLines.length && pre < newLines.length && oldLines[pre] === newLines[pre]) pre++;
+  let suf = 0;
+  while (
+    suf < oldLines.length - pre &&
+    suf < newLines.length - pre &&
+    oldLines[oldLines.length - 1 - suf] === newLines[newLines.length - 1 - suf]
+  ) suf++;
+  const a = oldLines.slice(pre, oldLines.length - suf);
+  const b = newLines.slice(pre, newLines.length - suf);
+
+  const ops = [];
+  for (let i = 0; i < pre; i++) ops.push({ kind: 'context', old: i, text: oldLines[i] });
+  if ((a.length + 1) * (b.length + 1) <= 1e6) {
+    const t = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+    for (let i = a.length - 1; i >= 0; i--) {
+      for (let j = b.length - 1; j >= 0; j--) t[i][j] = a[i] === b[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+    }
+    let i = 0;
+    let j = 0;
+    while (i < a.length || j < b.length) {
+      if (i < a.length && j < b.length && a[i] === b[j]) {
+        ops.push({ kind: 'context', old: pre + i, text: a[i] });
+        i++;
+        j++;
+      } else if (i < a.length && (j === b.length || t[i + 1][j] >= t[i][j + 1])) {
+        ops.push({ kind: 'removed', old: pre + i, text: a[i] });
+        i++;
+      } else {
+        ops.push({ kind: 'added', old: null, text: b[j] });
+        j++;
+      }
+    }
+  } else {
+    a.forEach((text, k) => ops.push({ kind: 'removed', old: pre + k, text }));
+    b.forEach((text) => ops.push({ kind: 'added', old: null, text }));
+  }
+  for (let k = oldLines.length - suf; k < oldLines.length; k++) ops.push({ kind: 'context', old: k, text: oldLines[k] });
+
+  const keep = new Set();
+  ops.forEach((o, k) => {
+    if (o.kind !== 'context') for (let d = -3; d <= 3; d++) keep.add(k + d);
+  });
+  return ops.filter((o, k) => keep.has(k)).map((o) => ({ kind: o.kind, line: o.old === null ? null : o.old + 1, text: o.text }));
+}
+
+function previewMarkdown(groups, body, count, cost) {
+  const found = findMarkdown(groups, body.key);
+  if (!found) return { error: `Unknown file: ${body.key}` };
+  const { group, file: f } = found;
+  if (f.symlink) return { error: symlinkError(f) };
+  if (!f.exists && !f.creatable) return { error: `${f.name} is not created from here.` };
+  const value = body.content;
+  if (typeof value !== 'string') return { error: 'content must be a string' };
+  if (Buffer.byteLength(value) > MAX_MD) return { error: `content exceeds ${MAX_MD} bytes` };
+  if (value.includes('\0')) return { error: 'content must not contain a NUL byte' };
+  const current = f.exists ? fs.readFileSync(f.path, 'utf8') : null;
+  if (current === value) return { error: 'No change.' };
+
+  const n = count(value);
+  const warnings = [];
+  if (!value.trim()) warnings.push(`${f.name} would be empty.`);
+  if (f.limit && n > f.limit.chars) {
+    warnings.push(
+      `${n} characters, above ${f.limit.setting} (${f.limit.chars}${f.limit.isDefault ? ', default' : ''}): ${f.limit.effect}.`
+    );
+  }
+  if (f.inTotal && group.total) {
+    const total = group.total.chars - f.chars + n;
+    const l = group.total.limit;
+    if (total > l.chars) {
+      warnings.push(`The workspace files would total ${total} characters, above ${l.setting} (${l.chars}${l.isDefault ? ', default' : ''}): ${l.effect}.`);
+    }
+  }
+
+  const restart = { kind: 'none', containerName: null, command: null, cwd: null, cost };
+  const lines = (t) => t.split('\n').length - 1;
+  if (current === null) {
+    const st = fs.statSync(group.path);
+    return {
+      response: {
+        token: crypto.randomUUID(),
+        file: f.path,
+        summary: `Creating ${f.path} (${lines(value)} lines)`,
+        diff: value.split('\n').map((text) => ({ kind: 'added', line: null, text })),
+        warnings,
+        restart,
+      },
+      plan: { target: 'agent-md-create', file: f.path, content: value, uid: st.uid, gid: st.gid },
+    };
+  }
+  return {
+    response: {
+      token: crypto.randomUUID(),
+      file: f.path,
+      summary: `${f.path} rewritten (${lines(current)} → ${lines(value)} lines)`,
+      diff: lineDiff(current.split('\n'), value.split('\n')),
+      warnings,
+      restart,
+    },
+    plan: { target: 'agent-md', file: f.path, hash: apps().sha(current), content: value },
+  };
+}
+
+// Rewrites go through applyPlan: hash check, timestamped backup, owner and mode kept.
+// Creation is the only extra path — a missing memories/ directory included.
+function applyMarkdown(plan) {
+  if (plan.target !== 'agent-md-create') return apps().applyPlan(plan);
+  if (fs.existsSync(plan.file)) return { conflict: true };
+  const dir = path.dirname(plan.file);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir);
+    fs.chownSync(dir, plan.uid, plan.gid);
+  }
+  apps().writePreserving(plan.file, plan.content, 0o644, plan.uid, plan.gid);
+  return { ok: true, backup: null };
 }
 
 // ---------- registry entries ----------
@@ -604,8 +921,8 @@ const OPENCLAW_APP = {
   detect: () => detectAgent('openclaw', 'OpenClaw', openclawConfigFile(), 'openclaw'),
   read: readOpenclaw,
   preview: previewOpenclaw,
-  // Unreachable — preview never issues a token — but the routes expect the same shape.
-  apply: (plan) => apps().applyPlan(plan),
+  apply: applyMarkdown,
+  readFile: (key) => readMarkdown(openclawMarkdown(openclawConfig()), key),
   facts: openclawFacts,
 };
 
@@ -619,8 +936,9 @@ const HERMES_APP = {
   detect: () => detectAgent('hermes', 'Hermes Agent', hermesConfigFile(), 'hermes'),
   read: readHermes,
   preview: previewHermes,
-  apply: (plan) => apps().applyPlan(plan),
+  apply: applyMarkdown,
+  readFile: (key) => readMarkdown(hermesMarkdown(), key),
   facts: hermesFacts,
 };
 
-module.exports = { OPENCLAW_APP, HERMES_APP, nemoclawFacts, agentOf, safeUrl, served };
+module.exports = { OPENCLAW_APP, HERMES_APP, nemoclawFacts, agentOf, safeUrl, served, lineDiff };

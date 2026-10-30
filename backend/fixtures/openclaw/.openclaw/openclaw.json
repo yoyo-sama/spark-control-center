@@ -8,7 +8,7 @@
         fallbacks: ['ollama/llama3'], // served as llama3:latest
       },
     },
-    list: [{ id: 'main' }, { id: 'ops', model: 'ollama/llama3' }],
+    list: [{ id: 'main' }, { id: 'ops', model: 'ollama/llama3', workspace: '~/.openclaw/workspace-ops' }],
   },
   gateway: {
     port: 18789,

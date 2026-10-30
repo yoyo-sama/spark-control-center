@@ -82,10 +82,8 @@ test('OpenClaw: channels report policy and allowFrom size, not who is in it', as
   assert.strictEqual(by.discord.enabled, false);
 });
 
-test('OpenClaw: workspace and skills, with copies shared with Claude Code flagged', async () => {
+test('OpenClaw: skills, with copies shared with Claude Code flagged', async () => {
   const s = (await openclaw.read()).standalone;
-  assert.strictEqual(s.workspace.path, path.join(DIR, '.openclaw', 'workspace'));
-  assert.deepStrictEqual(s.workspace.files.map((f) => [path.basename(f.path), f.lines]), [['AGENTS.md', 3], ['SOUL.md', 1]]);
   const managed = s.skills.find((r) => r.id === 'managed');
   assert.deepStrictEqual(managed.skills.map((k) => [k.name, k.sharedWith]), [['web-search', ['claude']]]);
   assert.deepStrictEqual(s.skills.find((r) => r.id === 'workspace').skills.map((k) => k.name), ['daily-brief']);
@@ -105,11 +103,6 @@ test('Hermes: model, terminal default, env key names only, nested skills, nothin
   assert.deepStrictEqual(s.terminal, { backend: 'local', backendIsDefault: true });
   assert.deepStrictEqual(s.compression, { enabled: true, threshold: 0.8 });
   assert.deepStrictEqual(s.envKeys, ['OPENROUTER_API_KEY', 'TELEGRAM_BOT_TOKEN']);
-  assert.deepStrictEqual(s.identity.map((f) => [path.relative(path.join(DIR, '.hermes'), f.path), f.exists, f.lines]), [
-    ['SOUL.md', true, 2],
-    [path.join('memories', 'MEMORY.md'), true, 1],
-    [path.join('memories', 'USER.md'), false, 0],
-  ]);
   assert.deepStrictEqual(s.profiles, ['work']);
   assert.deepStrictEqual(s.skills[0].skills.map((k) => [k.name, k.category]), [['notes', undefined], ['vllm-serve', 'mlops']]);
 });
@@ -215,4 +208,144 @@ test('rules: a model Ollama stopped serving fires for both, softer when a fallba
   } finally {
     installed = ['qwen3:32b', 'llama3:latest'];
   }
+});
+
+// ---------- markdown files ----------
+
+const WS = path.join(DIR, '.openclaw', 'workspace');
+const stat = (f) => {
+  const st = fs.statSync(f);
+  return `${st.uid}:${st.gid}:${(st.mode & 0o777).toString(8)}`;
+};
+
+test('OpenClaw markdown: one group per workspace, bootstrap files with their limit, daily notes newest first', async () => {
+  const groups = (await openclaw.read()).markdown;
+  assert.deepStrictEqual(groups.map((g) => [g.id, g.path, g.visible]), [
+    ['default', WS, true],
+    ['ops', path.join(DIR, '.openclaw', 'workspace-ops'), true],
+  ]);
+  const files = groups[0].files;
+  const by = Object.fromEntries(files.map((f) => [f.name, f]));
+  assert.deepStrictEqual([by['AGENTS.md'].exists, by['AGENTS.md'].lines, by['AGENTS.md'].chars], [true, 3, '# Agents\n\nBe brief.\n'.length]);
+  assert.deepStrictEqual([by['USER.md'].exists, by['USER.md'].creatable], [false, true]);
+  // the first-run ritual is never re-created
+  assert.strictEqual(by['BOOTSTRAP.md'].creatable, false);
+  assert.deepStrictEqual(by['SOUL.md'].limit, {
+    chars: 20000,
+    setting: 'bootstrapMaxChars',
+    isDefault: true,
+    effect: 'OpenClaw truncates it when injecting it into the system prompt',
+  });
+  assert.deepStrictEqual(files.filter((f) => f.name.startsWith('memory')).map((f) => [f.key, f.limit]), [
+    ['default:memory/2026-10-30.md', null],
+    ['default:memory/2026-10-29.md', null],
+  ]);
+  assert.strictEqual(groups[0].total.chars, by['AGENTS.md'].chars + by['SOUL.md'].chars);
+});
+
+test('Hermes markdown: one group per profile, memory limits from that profile\'s config or the documented defaults', async () => {
+  const groups = (await hermes.read()).markdown;
+  assert.deepStrictEqual(groups.map((g) => g.id), ['default', 'profile/work']);
+  const by = Object.fromEntries(groups[0].files.map((f) => [f.name, f]));
+  assert.deepStrictEqual([by['SOUL.md'].exists, by['SOUL.md'].lines, by['SOUL.md'].limit], [true, 2, null]);
+  assert.deepStrictEqual([by[path.join('memories', 'MEMORY.md')].limit.chars, by[path.join('memories', 'MEMORY.md')].limit.isDefault], [2200, true]);
+  // set in the fixture's config.yaml
+  assert.deepStrictEqual([by[path.join('memories', 'USER.md')].limit.chars, by[path.join('memories', 'USER.md')].limit.isDefault], [500, false]);
+  // the work profile has no config.yaml of its own: defaults
+  assert.strictEqual(groups[1].files.find((f) => f.name.endsWith('USER.md')).limit.chars, 1375);
+});
+
+test('readFile serves the listed files and nothing else', () => {
+  assert.strictEqual(openclaw.readFile('default:SOUL.md').content, '# Soul\n');
+  assert.strictEqual(openclaw.readFile('default:USER.md').content, '');
+  for (const key of ['default:../openclaw.json', 'default:credentials/whatsapp/creds.json', 'default:memory/../../openclaw.json', '', 'nope']) {
+    assert.strictEqual(openclaw.readFile(key).status, 404, key);
+  }
+  assert.strictEqual(hermes.readFile('default:.env').status, 404);
+  assert.strictEqual(hermes.readFile(`profile/work:SOUL.md`).content, 'You are the work profile.\n');
+});
+
+test('lineDiff marks an inserted line as one addition, not as everything below it', () => {
+  const { lineDiff } = require('./agents');
+  const d = lineDiff(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], ['a', 'b', 'c', 'd', 'X', 'e', 'f', 'g', 'h', 'i']);
+  assert.deepStrictEqual(d.filter((l) => l.kind !== 'context'), [{ kind: 'added', line: null, text: 'X' }]);
+  assert.deepStrictEqual(d.map((l) => l.text), ['b', 'c', 'd', 'X', 'e', 'f', 'g']);
+  const r = lineDiff(['a', 'b'], ['a', 'B']);
+  assert.deepStrictEqual(r.map((l) => l.kind), ['context', 'removed', 'added']);
+});
+
+test('editing AGENTS.md: preview writes nothing, apply keeps owner and mode and leaves a backup', () => {
+  const file = path.join(WS, 'AGENTS.md');
+  const before = fs.readFileSync(file, 'utf8');
+  const owner = stat(file);
+  const r = openclaw.preview({ target: 'markdown', key: 'default:AGENTS.md', content: '# Agents\n\nBe brief.\nAnswer in French.\n' });
+  assert.ok(!r.error, r.error);
+  assert.deepStrictEqual(r.response.diff.filter((l) => l.kind !== 'context'), [{ kind: 'added', line: null, text: 'Answer in French.' }]);
+  assert.deepStrictEqual(r.response.warnings, []);
+  assert.strictEqual(r.response.restart.kind, 'none');
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), before, 'preview modified the file');
+
+  const res = openclaw.apply(r.plan);
+  assert.strictEqual(res.ok, true);
+  assert.match(fs.readFileSync(file, 'utf8'), /Answer in French\.\n$/);
+  assert.strictEqual(stat(file), owner);
+  assert.strictEqual(fs.readFileSync(res.backup, 'utf8'), before);
+});
+
+test('apply refuses when the agent rewrote the file after the preview', () => {
+  const file = path.join(DIR, '.hermes', 'memories', 'MEMORY.md');
+  const r = hermes.preview({ target: 'markdown', key: 'default:memories/MEMORY.md', content: '- Consolidated.\n' });
+  fs.appendFileSync(file, '- Written by the agent meanwhile.\n');
+  assert.strictEqual(hermes.apply(r.plan).conflict, true);
+  assert.match(fs.readFileSync(file, 'utf8'), /meanwhile/);
+});
+
+test('creating a file: whole content shown, written with the owner of its directory, memories/ included', () => {
+  const r = openclaw.preview({ target: 'markdown', key: 'default:USER.md', content: '# User\n\nLives in Lyon.\n' });
+  assert.match(r.response.summary, /^Creating /);
+  assert.ok(r.response.diff.every((l) => l.kind === 'added'));
+  assert.strictEqual(openclaw.apply(r.plan).ok, true);
+  const owner = fs.statSync(WS);
+  const st = fs.statSync(path.join(WS, 'USER.md'));
+  assert.deepStrictEqual([st.uid, st.gid], [owner.uid, owner.gid]);
+  assert.strictEqual(openclaw.apply(r.plan).conflict, true, 'a second create must not overwrite');
+
+  const work = path.join(DIR, '.hermes', 'profiles', 'work');
+  const h = hermes.preview({ target: 'markdown', key: 'profile/work:memories/USER.md', content: '- Prefers short answers.\n' });
+  assert.strictEqual(hermes.apply(h.plan).ok, true);
+  assert.strictEqual(fs.readFileSync(path.join(work, 'memories', 'USER.md'), 'utf8'), '- Prefers short answers.\n');
+
+  assert.match(openclaw.preview({ target: 'markdown', key: 'default:BOOTSTRAP.md', content: 'x\n' }).error, /not created from here/);
+});
+
+test('limits warn, they do not block — and Hermes counts code points like Python does', () => {
+  // 'é' + an emoji: 2 code points, 3 UTF-16 units
+  const user = 'é😀'.repeat(250) + '\n';
+  const h = hermes.preview({ target: 'markdown', key: 'default:memories/USER.md', content: user });
+  assert.deepStrictEqual(h.response.warnings, [
+    '501 characters, above user_char_limit (500): Hermes\' memory tool refuses every new entry until it is back under the limit.',
+  ]);
+  const o = openclaw.preview({ target: 'markdown', key: 'default:SOUL.md', content: 'x'.repeat(61000) });
+  assert.strictEqual(o.response.warnings.length, 2);
+  assert.match(o.response.warnings[0], /above bootstrapMaxChars \(20000, default\)/);
+  assert.match(o.response.warnings[1], /would total \d+ characters, above bootstrapTotalMaxChars \(60000, default\)/);
+  assert.match(openclaw.preview({ target: 'markdown', key: 'default:SOUL.md', content: '  \n' }).response.warnings[0], /would be empty/);
+});
+
+test('what preview refuses: unchanged content, NUL bytes, oversize, symlinks, unknown keys, config targets', () => {
+  const p = (key, content) => openclaw.preview({ target: 'markdown', key, content }).error;
+  assert.match(p('default:SOUL.md', '# Soul\n'), /No change/);
+  assert.match(p('default:SOUL.md', 'a\0b'), /NUL/);
+  assert.match(p('default:SOUL.md', 'x'.repeat(256 * 1024 + 1)), /exceeds/);
+  assert.match(p('default:../openclaw.json', 'x'), /Unknown file/);
+  assert.match(p('default:SOUL.md', 42), /must be a string/);
+
+  const target = path.join(DIR, 'shared-tools.md');
+  fs.writeFileSync(target, '# Tools synced elsewhere\n');
+  fs.symlinkSync(target, path.join(WS, 'TOOLS.md'));
+  assert.match(p('default:TOOLS.md', 'replaced\n'), /symlink to .*shared-tools\.md/);
+  assert.strictEqual(openclaw.readFile('default:TOOLS.md').status, 409);
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), '# Tools synced elsewhere\n');
+
+  assert.match(openclaw.preview({ target: 'model', value: 'x' }).error, /config is read-only/);
 });

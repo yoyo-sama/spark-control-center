@@ -2,16 +2,18 @@
 # À activer via COMPOSE_FILE dans .env (voir .env.example), seulement si ~/.openclaw existe :
 # create_host_path: false fait échouer le démarrage plutôt que de laisser Docker créer un
 # ~/.openclaw vide appartenant à root, qui casserait ensuite `openclaw onboard`.
-# Lecture seule : l'app n'écrit jamais dans la config d'OpenClaw (voir backend/agents.js).
-# Le répertoire entier, et pas seulement openclaw.json : OpenClaw remplace ce fichier par
-# renommage, et un montage de fichier unique resterait figé sur l'ancien inode.
-# credentials/ et auth-profiles.json sont donc visibles du conteneur, mais jamais lus.
+# Lecture-écriture pour les seuls fichiers markdown des workspaces (AGENTS.md, SOUL.md,
+# USER.md, MEMORY.md, memory/*.md…), qu'on édite avec aperçu, diff et sauvegarde .bak.
+# openclaw.json n'est jamais écrit, credentials/ et auth-profiles.json jamais lus : la liste
+# des fichiers accessibles est fixée dans backend/agents.js, pas par ce montage.
+# Le répertoire entier, et pas des fichiers isolés : l'écriture se fait par renommage
+# atomique, impossible sur un montage de fichier unique.
+# Un workspace configuré hors de ~/.openclaw n'est pas visible : le monter en plus.
 services:
   app:
     volumes:
       - type: bind
         source: ${SPARK_HOME:-$HOME}/.openclaw
         target: ${SPARK_HOME:-$HOME}/.openclaw
-        read_only: true
         bind:
           create_host_path: false

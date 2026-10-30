@@ -19,7 +19,7 @@ La barre latérale comporte quatre sections :
   - **ComfyUI** : les flags de ligne de commande de son `compose.yaml`, et ses scripts utilisateur
   - **opencode** (`opencode.json`) : modèle par défaut, `limit.context`, compaction, chemins/urls de skills
   - **Claude Code** : fichiers de settings, plugins, serveurs MCP, hooks — en lecture seule sauf une courte liste blanche de clés inoffensives
-  - **OpenClaw** et **Hermes Agent**, avec ou sans **NemoClaw** — entièrement en lecture seule (exploration, voir plus bas) : comment chaque agent est déployé (sur l'hôte, dans un sandbox NemoClaw, ou les deux, plus ses processus vus dans `/proc`), son modèle confronté à Ollama, les canaux d'OpenClaw et qui peut écrire à l'agent, le backend terminal de Hermes, les skills, et les commandes pour les modifier
+  - **OpenClaw** et **Hermes Agent**, avec ou sans **NemoClaw** (exploration, voir plus bas) : comment chaque agent est déployé (sur l'hôte, dans un sandbox NemoClaw, ou les deux, plus ses processus vus dans `/proc`), son modèle confronté à Ollama, les canaux d'OpenClaw et qui peut écrire à l'agent, le backend terminal de Hermes, les skills. Leurs **fichiers markdown** sont éditables — ceux du workspace d'OpenClaw (`AGENTS.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`, `HEARTBEAT.md`, `MEMORY.md`, notes quotidiennes de `memory/`), `SOUL.md` et `memories/{MEMORY,USER}.md` de Hermes par profil — avec la limite de taille de chaque agent ; leur config reste en lecture seule, avec les commandes pour la modifier
   - **Pipeline d'édition** : aperçu → diff ligne à ligne → avertissements → confirmation explicite → écriture atomique préservant le propriétaire et les droits du fichier, avec un `.bak` horodaté et une vérification par hash de contenu qui refuse un aperçu si le fichier a changé entretemps. Les secrets sont masqués
   - **Gestionnaire de skills partagés** : les mêmes skills sont chargés par opencode et par Claude Code, donc les doublons entre racines sont signalés
   - **Moteur d'insights** : signale les vrais problèmes de cette machine (les règles vivent dans `backend/rules.js`) plutôt que de lister un catalogue
@@ -139,7 +139,7 @@ Aucune configuration n'est nécessaire. Variables optionnelles (via `environment
 
 ### OpenClaw, Hermes Agent, NemoClaw
 
-Leurs répertoires ne sont **pas montés par défaut** : monter un répertoire qui n'existe pas le fait créer vide et root:root par Docker, ce qui casse ensuite l'installeur de l'outil. Chacun a son overlay dans `compose/` (lecture seule, `create_host_path: false`), à lister dans `COMPOSE_FILE` du `.env` pour les seuls outils réellement installés :
+Leurs répertoires ne sont **pas montés par défaut** : monter un répertoire qui n'existe pas le fait créer vide et root:root par Docker, ce qui casse ensuite l'installeur de l'outil. Chacun a son overlay dans `compose/` (`create_host_path: false`), à lister dans `COMPOSE_FILE` du `.env` pour les seuls outils réellement installés. Ceux d'OpenClaw et de Hermes sont en lecture-écriture pour l'édition de leurs fichiers markdown — le backend n'y écrit rien d'autre ; celui de NemoClaw est en lecture seule :
 
 ```bash
 # OpenClaw sur l'hôte, plus NemoClaw
@@ -296,6 +296,7 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 | POST | `/api/gb10/reapply` | Redéclencher l'application côté hôte |
 | GET | `/api/apps` | Résumé du registre des apps |
 | GET | `/api/apps/:id` | Détail d'une app (détection, facts) |
+| GET | `/api/apps/:id/file?key=` | Lecture d'un fichier markdown d'un agent (OpenClaw, Hermes) |
 | POST | `/api/apps/:id/preview` | Aperçu d'une modification de config (diff + avertissements) |
 | POST | `/api/apps/:id/apply` | Appliquer une modification prévisualisée |
 | GET | `/api/skills` | Liste des skills sur toutes les racines |

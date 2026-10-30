@@ -12,3 +12,4 @@ toolsets:
   - terminal
 memory:
   memory_enabled: true
+  user_char_limit: 500

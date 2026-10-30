@@ -3,7 +3,7 @@ import {
   cardClass,
   Commands,
   ErrorBox,
-  MdFiles,
+  MarkdownFiles,
   NemoclawCommands,
   Pill,
   RawConfig,
@@ -28,16 +28,25 @@ const BACKEND_NOTE: Record<string, string> = {
 export default function HermesPanel({ appId }: { appId: string }) {
   return (
     <AgentLoader<HermesState> appId={appId}>
-      {(state) => {
+      {(state, reload) => {
         const s = state.standalone;
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted">
-              Read-only. config.yaml is commented YAML, which this app never re-serializes, and terminal.backend decides
-              where the agent runs its shell commands — this app has no authentication.
+              SOUL.md and the memories are editable; the config is read-only. config.yaml is commented YAML, which this app
+              never re-serializes, and terminal.backend decides where the agent runs its shell commands — this app has no
+              authentication.
             </p>
 
             <RuntimeCard agent="hermes" runtime={state.runtime} configFile={`${state.projectDir}/config.yaml`} />
+
+            <MarkdownFiles
+              appId={appId}
+              agent="hermes"
+              groups={state.markdown}
+              sandboxes={state.runtime.sandboxes.length}
+              onChanged={reload}
+            />
 
             {s && s.error && <ErrorBox>{s.error}</ErrorBox>}
 
@@ -84,8 +93,7 @@ export default function HermesPanel({ appId }: { appId: string }) {
                 </div>
 
                 <div className={cardClass}>
-                  <h3 className="text-sm font-semibold tracking-tight mb-2">Identity and memory</h3>
-                  {s.identity && <MdFiles files={s.identity} />}
+                  <h3 className="text-sm font-semibold tracking-tight mb-2">Profiles and secrets</h3>
                   {s.profiles && s.profiles.length > 0 && (
                     <Row label="Profiles">
                       <span className="truncate">{s.profiles.join(', ')}</span>

@@ -3,7 +3,7 @@ import {
   cardClass,
   Commands,
   ErrorBox,
-  MdFiles,
+  MarkdownFiles,
   NemoclawCommands,
   Pill,
   RawConfig,
@@ -11,7 +11,6 @@ import {
   RuntimeCard,
   ServedPill,
   SkillRoots,
-  Warning,
 } from './AgentCommon';
 import type { OpenclawState } from '../types';
 
@@ -27,16 +26,25 @@ function DmPolicy({ policy, open }: { policy: string | null; open: boolean }) {
 export default function OpenclawPanel({ appId }: { appId: string }) {
   return (
     <AgentLoader<OpenclawState> appId={appId}>
-      {(state) => {
+      {(state, reload) => {
         const s = state.standalone;
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted">
-              Read-only. openclaw.json is JSON5 that the gateway hot-reloads and refuses to start on if one key is wrong,
-              and it decides who may message an agent able to act on this machine — this app has no authentication.
+              The markdown files are editable; the config is read-only. openclaw.json is JSON5 that the gateway hot-reloads
+              and refuses to start on if one key is wrong, and it decides who may message an agent able to act on this
+              machine — this app has no authentication.
             </p>
 
             <RuntimeCard agent="openclaw" runtime={state.runtime} configFile={`${state.projectDir}/openclaw.json`} />
+
+            <MarkdownFiles
+              appId={appId}
+              agent="openclaw"
+              groups={state.markdown}
+              sandboxes={state.runtime.sandboxes.length}
+              onChanged={reload}
+            />
 
             {s && s.error && <ErrorBox>{s.error}</ErrorBox>}
 
@@ -139,20 +147,6 @@ export default function OpenclawPanel({ appId }: { appId: string }) {
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {s.workspace && (
-                  <div className={cardClass}>
-                    <h3 className="text-sm font-semibold tracking-tight mb-1">Workspace</h3>
-                    <p className="text-xs text-muted font-mono mb-2">{s.workspace.path}</p>
-                    {!s.workspace.visible ? (
-                      <Warning>Outside the mounted ~/.openclaw: not visible from the container.</Warning>
-                    ) : s.workspace.files.length === 0 ? (
-                      <p className="text-sm text-muted">No bootstrap file.</p>
-                    ) : (
-                      <MdFiles files={s.workspace.files} />
-                    )}
                   </div>
                 )}
 
