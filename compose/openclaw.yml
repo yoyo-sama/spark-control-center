@@ -1,0 +1,17 @@
+# Overlay : OpenClaw installé directement sur l'hôte (sans NemoClaw).
+# À activer via COMPOSE_FILE dans .env (voir .env.example), seulement si ~/.openclaw existe :
+# create_host_path: false fait échouer le démarrage plutôt que de laisser Docker créer un
+# ~/.openclaw vide appartenant à root, qui casserait ensuite `openclaw onboard`.
+# Lecture seule : l'app n'écrit jamais dans la config d'OpenClaw (voir backend/agents.js).
+# Le répertoire entier, et pas seulement openclaw.json : OpenClaw remplace ce fichier par
+# renommage, et un montage de fichier unique resterait figé sur l'ancien inode.
+# credentials/ et auth-profiles.json sont donc visibles du conteneur, mais jamais lus.
+services:
+  app:
+    volumes:
+      - type: bind
+        source: ${SPARK_HOME:-$HOME}/.openclaw
+        target: ${SPARK_HOME:-$HOME}/.openclaw
+        read_only: true
+        bind:
+          create_host_path: false

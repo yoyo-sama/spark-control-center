@@ -3,6 +3,8 @@ import { Loader2 } from 'lucide-react';
 import ComfyUiPanel from './ComfyUiPanel';
 import OpencodePanel from './OpencodePanel';
 import ClaudeCodePanel from './ClaudeCodePanel';
+import OpenclawPanel from './OpenclawPanel';
+import HermesPanel from './HermesPanel';
 import type { AppSummary } from '../types';
 
 const API_BASE = '/api';
@@ -11,6 +13,8 @@ const PANELS: Record<string, (appId: string, onOpenApp: (appId: string) => void)
   comfyui: (appId) => <ComfyUiPanel appId={appId} />,
   opencode: (appId, onOpenApp) => <OpencodePanel appId={appId} onOpenApp={onOpenApp} />,
   'claude-code': () => <ClaudeCodePanel />,
+  openclaw: (appId) => <OpenclawPanel appId={appId} />,
+  hermes: (appId) => <HermesPanel appId={appId} />,
 };
 
 export default function Apps({ initialAppId }: { initialAppId?: string }) {

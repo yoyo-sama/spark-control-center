@@ -1,0 +1,14 @@
+# Hermes Agent configuration — comments must survive, which is why nothing here is ever rewritten.
+model:
+  provider: custom
+  base_url: http://user:PW-SECRET-0101@localhost:11434/v1   # this machine's Ollama
+  default: qwen3:32b
+  api_key: sk-hermes-SECRET-0102
+compression:
+  enabled: true
+  threshold: 0.8
+toolsets:
+  - web
+  - terminal
+memory:
+  memory_enabled: true

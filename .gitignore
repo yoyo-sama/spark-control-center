@@ -6,3 +6,6 @@ opencode.json
 
 __pycache__/
 *.pyc
+
+# Test fixture: a fake .env, holding nothing but fake secrets the tests check never leak.
+!backend/fixtures/hermes/.hermes/.env

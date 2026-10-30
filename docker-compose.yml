@@ -55,6 +55,13 @@ services:
       - SKILLS_CLAUDE_DIR=${SPARK_HOME:-$HOME}/.claude/skills
       - SKILLS_AGENTS_DIR=${SPARK_HOME:-$HOME}/.agents/skills
       - SKILLS_OPENCODE_DIR=${SPARK_HOME:-$HOME}/.config/opencode/skills
+      # OpenClaw, Hermes Agent et NemoClaw : chemins posés ici, mais leurs répertoires ne sont
+      # montés que par les overlays de compose/, à activer outil par outil (voir .env.example).
+      # Monter ici un répertoire absent le ferait créer vide et root:root par Docker, ce qui
+      # ferait ensuite échouer l'installation de l'outil sous l'utilisateur.
+      - OPENCLAW_DIR=${SPARK_HOME:-$HOME}/.openclaw
+      - HERMES_DIR=${SPARK_HOME:-$HOME}/.hermes
+      - NEMOCLAW_DIR=${SPARK_HOME:-$HOME}/.nemoclaw
     deploy:
       resources:
         reservations:

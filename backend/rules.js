@@ -81,6 +81,65 @@ module.exports = [
         f.opencode.installed.some((i) => !f.opencode.declared.includes(i))),
   },
   {
+    id: 'openclaw-open-dm',
+    severity: 'high',
+    target: 'openclaw',
+    title: 'OpenClaw answers direct messages from anyone',
+    // toolSandbox is OpenClaw's own tool sandbox, not NemoClaw: these facts only exist for
+    // a standalone install, whose agent runs as your user on this machine.
+    why: (f) =>
+      `${nameList(f.openclaw.openChannels)} ${f.openclaw.openChannels.length > 1 ? 'have' : 'has'} dmPolicy "open" ` +
+      '(or allowFrom "*") in openclaw.json: anyone who finds the bot can talk to an agent running as your user on ' +
+      'this machine' +
+      (f.openclaw.toolSandbox && f.openclaw.toolSandbox !== 'off'
+        ? `, even if its tools run in a sandbox (mode "${f.openclaw.toolSandbox}").`
+        : ', with its tools unsandboxed: shell, files and network.') +
+      ' "pairing" or "allowlist" restrict it to approved senders. Not editable from here on purpose: ' +
+      'openclaw config set channels.<name>.dmPolicy pairing.',
+    action: { kind: 'app', appId: 'openclaw' },
+    detect: (f) => !!f.openclaw && f.openclaw.openChannels.length > 0,
+  },
+  {
+    id: 'openclaw-model-not-served',
+    // With a served fallback the agent degrades, without one it stops answering — on a
+    // messaging channel, silently.
+    severity: (f) => (f.openclaw.fallbackServed ? 'medium' : 'high'),
+    target: 'openclaw',
+    title: 'OpenClaw\'s default model is not served by Ollama',
+    why: (f) =>
+      `agents.defaults.model.primary is ${f.openclaw.primary}, which Ollama does not serve. ` +
+      (f.openclaw.fallbackServed
+        ? 'Every request first fails, then falls back to the next model.'
+        : 'No fallback is served either: the agent cannot answer.') +
+      ' Pull the model, or point OpenClaw at one Ollama serves.',
+    action: { kind: 'app', appId: 'openclaw' },
+    detect: (f) => !!f.openclaw && f.openclaw.primaryServed === false,
+  },
+  {
+    id: 'hermes-model-not-served',
+    severity: 'high',
+    target: 'hermes',
+    title: 'Hermes points at a model Ollama does not serve',
+    why: (f) =>
+      `config.yaml sends Hermes to this machine's Ollama with model.default ${f.hermes.model}, which Ollama does ` +
+      'not serve: every turn fails. Pull the model, or change it with hermes config set model.default.',
+    action: { kind: 'app', appId: 'hermes' },
+    detect: (f) => !!f.hermes && f.hermes.served === false,
+  },
+  {
+    id: 'nemoclaw-legacy-credentials',
+    severity: 'medium',
+    target: 'host',
+    title: 'NemoClaw left a plaintext credentials file behind',
+    why:
+        '~/.nemoclaw/credentials.json exists. Current NemoClaw releases keep provider credentials in the OpenShell ' +
+        'gateway store and migrate this legacy file at onboarding, but can leave it on disk afterwards ' +
+        '(NVIDIA/NemoClaw#10388). Once your sandboxes are confirmed to still reach their provider, delete it. ' +
+        'This app only checks that it exists, it never reads it.',
+    action: null,
+    detect: (f) => !!f.nemoclaw && f.nemoclaw.legacyCredentials,
+  },
+  {
     id: 'system-updates-pending',
     // severity/why depend on the actual counts, unlike every rule above — resolved
     // against facts by insights.js (typeof === 'function' check), nothing fancier.

@@ -1,0 +1,7 @@
+{
+  "defaultSandbox": "my-assistant",
+  "sandboxes": {
+    "my-assistant": { "model": "nvidia/nemotron-3-super-120b", "provider": "nvidia-nim", "gpuEnabled": true, "policies": ["pypi", "npm"] },
+    "hermes-box": { "agent": "hermes", "model": "qwen3.6:35b", "provider": "ollama", "controlUiPort": 18790, "gatewayToken": "SBX-SECRET-0201" }
+  }
+}

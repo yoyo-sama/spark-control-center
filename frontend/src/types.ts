@@ -401,3 +401,139 @@ export interface ClaudeCodeState {
   mcp?: ClaudeCodeMcp;
   hooks?: ClaudeCodeHooks;
 }
+
+// ---------- OpenClaw / Hermes, standalone or under NemoClaw ----------
+
+export interface AgentProcess {
+  agent: 'openclaw' | 'hermes';
+  pid: number;
+  argv: string[];
+  // null when /proc/<pid>/cgroup could not be read
+  containerized: boolean | null;
+}
+
+export interface NemoclawSandbox {
+  name: string;
+  gateway: string;
+  agent: string;
+  // true when the registry entry had no agent field and OpenClaw was assumed
+  agentInferred: boolean;
+  model: string | null;
+  provider: string | null;
+  gpu: boolean | null;
+  dashboardPort: number | null;
+  policies: string[] | null;
+  createdAt: string | null;
+  isDefault: boolean;
+  fields: Record<string, unknown>;
+}
+
+export interface NemoclawState {
+  dir: string;
+  visible: boolean;
+  registries: Array<{ file: string; gateway: string; error: string | null; count: number }>;
+  sandboxes: NemoclawSandbox[];
+  legacyCredentials: boolean;
+  gatewayContainers: Array<{ name: string; image: string; state: string; status: string }>;
+}
+
+export interface AgentRuntime {
+  standalone: boolean;
+  sandboxes: NemoclawSandbox[];
+  otherSandboxes: number;
+  processes: AgentProcess[];
+  nemoclaw: NemoclawState;
+}
+
+export interface MdFileInfo {
+  path: string;
+  exists: boolean;
+  lines: number;
+}
+
+export interface AgentSkill {
+  name: string;
+  description: string;
+  path: string;
+  category?: string;
+  sharedWith: string[];
+}
+
+export interface AgentSkillRoot {
+  id: string;
+  path: string;
+  exists: boolean;
+  skills: AgentSkill[];
+}
+
+export interface AgentModelRef {
+  ref: string;
+  ollamaId: string | null;
+  served: boolean | null;
+}
+
+// Without a parsable config, only configFile and error are present.
+export interface OpenclawStandalone {
+  configFile: string;
+  error: string | null;
+  model?: { primary: AgentModelRef | null; fallbacks: AgentModelRef[] };
+  gateway?: { port: number; portIsDefault: boolean; bind: string | null; authConfigured: boolean };
+  toolSandbox?: string | null;
+  agents?: Array<{ id: string; model: string | null }>;
+  channels?: Array<{
+    name: string;
+    enabled: boolean;
+    dmPolicy: string | null;
+    allowFromCount: number | null;
+    openToAnyone: boolean;
+    groupPolicy: string | null;
+  }>;
+  providers?: Array<{
+    id: string;
+    api: string | null;
+    baseUrl: string | null;
+    apiKeySet: boolean;
+    models: Array<{ id: string; contextWindow: number | null; maxTokens: number | null }>;
+  }>;
+  workspace?: { path: string; visible: boolean; files: MdFileInfo[] };
+  skills?: AgentSkillRoot[];
+  config?: Record<string, unknown>;
+}
+
+export interface HermesStandalone {
+  configFile: string;
+  error: string | null;
+  model?: {
+    default: string | null;
+    provider: string | null;
+    baseUrl: string | null;
+    pointsAtOllama: boolean;
+    served: boolean | null;
+  };
+  terminal?: { backend: string; backendIsDefault: boolean };
+  compression?: { enabled: boolean | null; threshold: number | null };
+  toolsets?: string[] | null;
+  envKeys?: string[] | null;
+  identity?: MdFileInfo[];
+  profiles?: string[];
+  skills?: AgentSkillRoot[];
+  config?: Record<string, unknown>;
+}
+
+interface AgentStateBase {
+  id: string;
+  label: string;
+  detected: boolean;
+  reason: string;
+  projectDir: string;
+  runtime: AgentRuntime;
+  ollama: OpencodeOllamaInfo;
+}
+
+export interface OpenclawState extends AgentStateBase {
+  standalone: OpenclawStandalone | null;
+}
+
+export interface HermesState extends AgentStateBase {
+  standalone: HermesStandalone | null;
+}

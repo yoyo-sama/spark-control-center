@@ -1,5 +1,74 @@
 # Tour de contrôle — changelog
 
+## 2026-10-30 — Exploration : OpenClaw et Hermes Agent dans Apps, avec ou sans NemoClaw
+
+Branche d'exploration. La rubrique Apps gère opencode et Claude Code ; la question était de savoir comment y
+faire entrer OpenClaw et Hermes Agent, selon qu'ils tournent directement sur l'hôte ou dans NemoClaw.
+
+**Ce que NemoClaw change, et qui a dicté toute l'architecture.** Sans NemoClaw, chaque agent a sa config
+sur l'hôte : `~/.openclaw/openclaw.json` (JSON5, rechargé à chaud par la passerelle, qui refuse de démarrer
+sur une seule clé invalide) et `~/.hermes/config.yaml` (YAML commenté, plus `.env`, `SOUL.md`, `memories/`,
+`skills/`). Avec NemoClaw, l'agent tourne dans un sandbox OpenShell (k3s dans un conteneur Docker, Landlock,
+politique de sortie réseau) et sa config vit **dans le sandbox**, propriété de l'agent : depuis l'hôte, il
+n'y a que le registre `~/.nemoclaw/sandboxes.json`. Les identifiants sont dans le magasin de la passerelle,
+sous `~/.local/state/nemoclaw/`, avec les clés mTLS et de signature JWT.
+
+**Fait.**
+
+| Partie | Fichiers | Contenu |
+|---|---|---|
+| Backend | `backend/agents.js` (neuf), `apps.js`, `skills.js`, `insights.js`, `rules.js` | Deux entrées `openclaw` et `hermes` dans le registre. Détection par trois traces : config sur l'hôte, sandbox dans le registre NemoClaw (passerelle par défaut et `gateways/<port>/`), processus vu dans `/proc` — distingué hôte / conteneur par son cgroup. Modèle confronté à Ollama, canaux OpenClaw, backend terminal de Hermes, skills (même format SKILL.md ; les copies présentes aussi côté Claude Code sont signalées, elles divergeront). |
+| Règles | `rules.js` | `openclaw-open-dm` (un canal en `dmPolicy: "open"` : n'importe qui parle à un agent qui agit sur la machine), `openclaw-model-not-served` (plus douce si un repli est servi), `hermes-model-not-served`, `nemoclaw-legacy-credentials` (fichier en clair que l'onboarding peut laisser derrière lui, NVIDIA/NemoClaw#10388 ; testé en existence, jamais lu). |
+| Frontend | `AgentCommon.tsx`, `OpenclawPanel.tsx`, `HermesPanel.tsx` (neufs), `Apps.tsx`, `types.ts` | Une carte « Deployment » qui répond à la question avec/sans NemoClaw à partir de ce qui est réellement sur la machine, puis la config, et les commandes à lancer pour la modifier. |
+| Compose | `docker-compose.yml`, `compose/{openclaw,hermes,nemoclaw}.yml` (neufs), `.env.example` | Variables posées, montages en overlays optionnels via `COMPOSE_FILE`. |
+
+**Entièrement en lecture seule, volontairement.** `preview` refuse et renvoie vers la CLI de l'outil. Hors
+NemoClaw, ces deux fichiers décident de ce que peut faire un agent joignable depuis une messagerie
+(`dmPolicy`, `terminal.backend`) — même frontière que les permissions et hooks de Claude Code, dans une app
+sans authentification. Ni le JSON5 ni le YAML commenté ne survivent à l'aller-retour parse/réécriture
+qu'utilise `apps.js`. Sous NemoClaw, la config n'est même pas sur l'hôte. La lire dans le sandbox serait
+possible à travers le socket Docker, mais ce serait traverser la frontière que NemoClaw installe : écarté.
+
+**Montages optionnels, et pourquoi.** Monter un `~/.openclaw` absent le fait créer vide et root:root par
+Docker, et `openclaw onboard` échoue ensuite — exactement le cas d'une machine où l'on explore avant
+d'installer. Chaque overlay utilise donc `create_host_path: false` : un outil listé mais absent empêche le
+démarrage au lieu de casser son installeur. Répertoires entiers plutôt que fichiers seuls : un outil qui
+réécrit sa config par renommage laisserait un montage de fichier figé sur l'ancien inode (le compromis :
+`credentials/` est visible du conteneur, jamais lu). `~/.local/state/nemoclaw` n'est jamais monté.
+
+**Ce qui ne sort jamais.** Les valeurs du `.env` de Hermes (seuls les noms), `auth.json`, `state.db`
+(tout l'historique), `credentials/` et les profils d'auth d'OpenClaw, les numéros des listes `allowFrom`
+(seule leur taille), les identifiants dans une URL de base. Les tests l'ont attrapé deux fois : le dump brut
+de la config laissait passer un numéro de `allowFrom` et le mot de passe d'un `base_url` — `mask()` ne
+regarde que les noms de clés. Le dump passe désormais par le même nettoyage que les résumés. Autre piège
+évité : la regex de `mask()` attrape `maxTokens` (TOKEN), donc les limites de modèle sont lues dans la
+config brute, champ par champ.
+
+**Vérifié.** 68 tests backend verts (14 nouveaux, fixtures copiées dans un répertoire temporaire, faux Ollama
+local) : aucun secret des fixtures ne sort, JSON5 et YAML commentés lus, registre NemoClaw lu sur deux
+passerelles et cassé sans planter, refus d'édition, règles déclenchées et silencieuses comme attendu.
+`docker compose config` : trois montages en lecture seule avec les overlays, aucun sans. Build et lint du
+frontend propres ; les deux onglets rendus dans Chromium sur les fixtures.
+
+**À vérifier sur la vraie machine — rien de tout cela n'y a tourné.**
+- Le schéma de `sandboxes.json` n'est pas documenté champ par champ : la lecture est tolérante et montre
+  tous les champs bruts (masqués). Une entrée sans champ d'agent est supposée OpenClaw, et l'interface le
+  dit. Comparer avec un vrai `cat ~/.nemoclaw/sandboxes.json`.
+- Les motifs de processus (`openclaw`, `openclaw-gateway`, `node_modules/openclaw/`, `hermes`,
+  `hermes_cli`) sont déduits : comparer avec `ps -eo args | grep -Ei 'openclaw|hermes'`.
+- L'installation express DGX Spark configurerait un « Ollama géré » (article tiers, Classmethod) : vérifier
+  qu'elle ne se dispute pas le 11434 avec le conteneur `ollama-api` existant.
+- Les commandes affichées (`nemoclaw <nom> connect`, `nemohermes inference set`, `openclaw config set`,
+  `hermes config set`) viennent des docs, à confirmer avec `--help` sur les versions installées.
+- Sources : documentation NVIDIA NemoClaw, OpenClaw et Hermes Agent consultée via des résultats de recherche
+  — docs.nvidia.com n'était pas joignable depuis la session.
+
+**Suite possible, à décider.** Ouvrir l'édition d'une courte liste blanche (modèle par défaut), par
+remplacement textuel d'une ligne comme pour `compose.yaml` ; ou s'en tenir aux commandes affichées.
+
+**Retour arrière** : `git revert` de ce commit, retirer `COMPOSE_FILE` du `.env` s'il a été posé, puis
+`docker compose up -d --build`.
+
 ## 2026-09-12 — « Spark Control Center » v1 : rubrique de configuration GB10 (famille GPU/thermique)
 
 Cadré via `/architect` puis exécuté en 4 lots parallèles. Origine : des freezes du GB10 sous charge GPU

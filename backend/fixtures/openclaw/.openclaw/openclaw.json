@@ -1,0 +1,33 @@
+// OpenClaw gateway config — JSON5: comments, unquoted keys and trailing commas are all legal.
+{
+  agents: {
+    defaults: {
+      workspace: '~/.openclaw/workspace',
+      model: {
+        primary: 'ollama/qwen3:32b',
+        fallbacks: ['ollama/llama3'], // served as llama3:latest
+      },
+    },
+    list: [{ id: 'main' }, { id: 'ops', model: 'ollama/llama3' }],
+  },
+  gateway: {
+    port: 18789,
+    bind: 'loopback',
+    auth: { mode: 'token', token: 'oc-gateway-SECRET-0001' },
+  },
+  channels: {
+    telegram: { botToken: '123456:TG-SECRET-0002', dmPolicy: 'open', allowFrom: ['*'] },
+    whatsapp: { dmPolicy: 'allowlist', allowFrom: ['+33600000001'] },
+    discord: { enabled: false, token: 'DC-SECRET-0003', dm: { policy: 'open' } },
+  },
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: 'http://admin:PW-SECRET-0004@host.docker.internal:11434',
+        apiKey: 'ollama-local',
+        api: 'ollama',
+        models: [{ id: 'qwen3:32b', contextWindow: 131072, maxTokens: 8192 }],
+      },
+    },
+  },
+}

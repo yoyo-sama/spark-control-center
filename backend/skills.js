@@ -314,4 +314,4 @@ router.post('/apply', (req, res) => {
   res.json({ ok: true, backup: r.backup, restart: entry.restart });
 });
 
-module.exports = { router, scanSkills };
+module.exports = { router, scanSkills, frontmatter };

@@ -667,6 +667,8 @@ function previewClaudeCode(body) {
 
 // ---------- registry ----------
 
+const { OPENCLAW_APP, HERMES_APP } = require('./agents');
+
 const APPS = [
   {
     id: 'comfyui',
@@ -708,6 +710,8 @@ const APPS = [
     apply: applyPlan,
     facts: async () => null,
   },
+  OPENCLAW_APP,
+  HERMES_APP,
 ];
 
 // ---------- routes ----------
@@ -764,4 +768,4 @@ router.post('/:id/apply', (req, res) => {
   res.json({ ok: true, backup: r.backup, restart: entry.restart });
 });
 
-module.exports = { router, APPS, mask, sha, writePreserving, applyPlan, buildLineDiff };
+module.exports = { router, APPS, mask, maskArray, ollamaInfo, sha, writePreserving, applyPlan, buildLineDiff };

@@ -1,0 +1,1 @@
+- The GPU is a GB10.

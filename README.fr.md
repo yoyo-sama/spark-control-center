@@ -19,6 +19,7 @@ La barre latérale comporte quatre sections :
   - **ComfyUI** : les flags de ligne de commande de son `compose.yaml`, et ses scripts utilisateur
   - **opencode** (`opencode.json`) : modèle par défaut, `limit.context`, compaction, chemins/urls de skills
   - **Claude Code** : fichiers de settings, plugins, serveurs MCP, hooks — en lecture seule sauf une courte liste blanche de clés inoffensives
+  - **OpenClaw** et **Hermes Agent**, avec ou sans **NemoClaw** — entièrement en lecture seule (exploration, voir plus bas) : comment chaque agent est déployé (sur l'hôte, dans un sandbox NemoClaw, ou les deux, plus ses processus vus dans `/proc`), son modèle confronté à Ollama, les canaux d'OpenClaw et qui peut écrire à l'agent, le backend terminal de Hermes, les skills, et les commandes pour les modifier
   - **Pipeline d'édition** : aperçu → diff ligne à ligne → avertissements → confirmation explicite → écriture atomique préservant le propriétaire et les droits du fichier, avec un `.bak` horodaté et une vérification par hash de contenu qui refuse un aperçu si le fichier a changé entretemps. Les secrets sont masqués
   - **Gestionnaire de skills partagés** : les mêmes skills sont chargés par opencode et par Claude Code, donc les doublons entre racines sont signalés
   - **Moteur d'insights** : signale les vrais problèmes de cette machine (les règles vivent dans `backend/rules.js`) plutôt que de lister un catalogue
@@ -136,6 +137,20 @@ Aucune configuration n'est nécessaire. Variables optionnelles (via `environment
 
 > Pour exposer l'UI sur un autre port que 8081, modifiez la section `ports:` du service `app` (ex: `"9090:3001"`).
 
+### OpenClaw, Hermes Agent, NemoClaw
+
+Leurs répertoires ne sont **pas montés par défaut** : monter un répertoire qui n'existe pas le fait créer vide et root:root par Docker, ce qui casse ensuite l'installeur de l'outil. Chacun a son overlay dans `compose/` (lecture seule, `create_host_path: false`), à lister dans `COMPOSE_FILE` du `.env` pour les seuls outils réellement installés :
+
+```bash
+# OpenClaw sur l'hôte, plus NemoClaw
+echo 'COMPOSE_FILE=docker-compose.yml:compose/openclaw.yml:compose/nemoclaw.yml' >> .env
+docker compose up -d --build
+```
+
+Un overlay dont le répertoire manque empêche le conteneur de démarrer — c'est voulu. Même sans overlay, un processus OpenClaw ou Hermes en cours est vu via `/proc`, et son onglet dit quel overlay manque.
+
+Avec NemoClaw, la config de l'agent vit **dans** le sandbox OpenShell et appartient à l'agent : depuis l'hôte, seul le registre des sandboxes (`~/.nemoclaw/sandboxes.json`) se lit. `~/.local/state/nemoclaw` (base de la passerelle, clés mTLS, matériel de signature JWT) n'est jamais monté.
+
 ## Réglages GB10
 
 ### Le principe
@@ -239,6 +254,7 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 │   ├── index.js        # API REST, WebSocket exec, déploiement GitHub, fichiers statiques
 │   ├── gb10.js         # État désiré/réel GB10
 │   ├── apps.js         # Registre des apps + pipeline d'édition
+│   ├── agents.js       # OpenClaw / Hermes / NemoClaw, lecture seule
 │   ├── skills.js       # Gestionnaire de skills partagés
 │   ├── insights.js     # Moteur d'insights
 │   ├── rules.js        # Catalogue de règles d'insights
@@ -258,6 +274,7 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 ├── host/
 │   ├── gb10-tuning/    # apply.py + son test, unités systemd .path/.service
 │   └── dgx-updates/    # Script de snapshot, service et timer systemd
+├── compose/            # Overlays optionnels : openclaw.yml, hermes.yml, nemoclaw.yml
 ├── Dockerfile          # Image unique multi-stage (build frontend + backend)
 └── docker-compose.yml
 ```

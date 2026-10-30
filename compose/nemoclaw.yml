@@ -1,0 +1,19 @@
+# Overlay : NemoClaw (OpenClaw ou Hermes dans un sandbox OpenShell).
+# À activer via COMPOSE_FILE dans .env (voir .env.example), seulement si ~/.nemoclaw existe —
+# même raison que les deux autres overlays : pas de répertoire root:root créé à la place
+# de l'installeur.
+# Sous NemoClaw, la config de l'agent vit DANS le sandbox : ~/.nemoclaw ne contient que le
+# registre des sandboxes (sandboxes.json), lu ici en lecture seule. credentials.json, s'il
+# traîne encore, n'est que testé en existence.
+# ~/.local/state/nemoclaw n'est volontairement PAS monté : base de la passerelle, clés
+# privées mTLS et matériel de signature JWT. L'état de la passerelle OpenShell se lit par
+# le socket Docker, qui est déjà monté.
+services:
+  app:
+    volumes:
+      - type: bind
+        source: ${SPARK_HOME:-$HOME}/.nemoclaw
+        target: ${SPARK_HOME:-$HOME}/.nemoclaw
+        read_only: true
+        bind:
+          create_host_path: false

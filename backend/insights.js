@@ -6,6 +6,7 @@ const Docker = require('dockerode');
 const { APPS } = require('./apps');
 const RULES = require('./rules');
 const { readSummary } = require('./updates');
+const { nemoclawFacts } = require('./agents');
 
 const router = express.Router();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -93,6 +94,7 @@ async function collectFacts() {
     vmSwappiness: vmSwappiness(),
     updates: updatesFacts(),
     portConflicts: await portConflictsFacts(),
+    nemoclaw: nemoclawFacts(),
   };
   for (const app of APPS) facts[app.id] = await app.facts();
   return facts;
