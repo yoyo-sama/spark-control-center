@@ -303,7 +303,7 @@ Un outil est une entrée de `TOOLS` dans `backend/benchtools.js` : son Dockerfil
 │   ├── index.js        # API REST, WebSocket exec, déploiement GitHub, fichiers statiques
 │   ├── gb10.js         # État désiré/réel GB10
 │   ├── apps.js         # Registre des apps + pipeline d'édition
-│   ├── agents.js       # OpenClaw / Hermes / NemoClaw, lecture seule
+│   ├── agents.js       # OpenClaw / Hermes / NemoClaw : config en lecture seule, markdown éditable
 │   ├── skills.js       # Gestionnaire de skills partagés
 │   ├── insights.js     # Moteur d'insights
 │   ├── rules.js        # Catalogue de règles d'insights

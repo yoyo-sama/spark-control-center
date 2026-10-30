@@ -303,7 +303,7 @@ A tool is one entry of `TOOLS` in `backend/benchtools.js`: its Dockerfile, its p
 │   ├── index.js        # REST API, WebSocket exec, GitHub deploy, static serving
 │   ├── gb10.js         # GB10 desired/actual state
 │   ├── apps.js         # App registry + the edit pipeline
-│   ├── agents.js       # OpenClaw / Hermes / NemoClaw, read-only
+│   ├── agents.js       # OpenClaw / Hermes / NemoClaw: read-only config, editable markdown
 │   ├── skills.js       # Shared skills manager
 │   ├── insights.js     # Insight engine
 │   ├── rules.js        # Insight rule catalogue
