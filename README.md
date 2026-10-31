@@ -65,6 +65,8 @@ cd spark-control-center
 docker compose up -d --build
 ```
 
+`~/.claude.json` must exist before the first start. If Claude Code has never run on the machine, `docker compose up` stops on `bind source path does not exist`: run `touch ~/.claude.json`, then try again.
+
 The application is available at **http://localhost:8081**.
 
 Everything runs in a **single container**: the Node backend serves both the API (including the WebSocket terminal) and the static frontend.
