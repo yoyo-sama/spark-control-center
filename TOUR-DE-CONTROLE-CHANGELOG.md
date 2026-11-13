@@ -478,8 +478,10 @@ affichés ; ils le sont maintenant, pour toutes les cartes.
 ## ⏳ TEST EN ATTENTE — plafond CPU sur le GB10 (posé le 2026-11-13, non joué)
 
 1. Réinstaller `apply.py` et `gb10-tuning.service` (commandes d'installation du README), puis `daemon-reload`.
-2. Vérifier ce que fait `nv-cpu-governor` : `systemctl cat nv-cpu-governor`. Si c'est un démon qui réécrit les
-   fréquences en continu (et pas un oneshot au boot), `After=` ne suffira pas : le badge passera `Diverged`.
+2. ~~Vérifier ce que fait `nv-cpu-governor`~~ vérifié le 2026-11-13 (lecture seule) : oneshot `Type=idle` au boot qui
+   ne lance que `cpupower frequency-set -g performance` ; il change le governor, pas `scaling_max_freq`. Gros cœurs
+   confirmés `cpu5-9,15-19` à 3900 MHz, A725 à 2808 MHz, pilote `cppc_cpufreq`. Avec `Type=idle`, `After=` n'attend
+   que son lancement, pas sa fin : sans conséquence ici puisqu'il ne touche pas au plafond, et la relecture le dirait.
 3. Dans la carte « CPU clock cap (X925 cores) », `Apply` à 3000, puis
    `grep . /sys/devices/system/cpu/cpu{5..9}/cpufreq/scaling_max_freq /sys/devices/system/cpu/cpu1{5..9}/cpufreq/scaling_max_freq`
    (attendu 3000000) et `cat /etc/gb10-tuning/result.json`.
