@@ -1,5 +1,8 @@
 [Unit]
 Description=Apply GB10 tuning desired state
+# Le plafond CPU (scaling_max_freq) doit passer apres nv-cpu-governor, qui reecrit
+# les frequences au demarrage. After= ne fait qu'ordonner : sans effet si l'unite n'existe pas.
+After=nv-cpu-governor.service
 
 [Service]
 Type=oneshot

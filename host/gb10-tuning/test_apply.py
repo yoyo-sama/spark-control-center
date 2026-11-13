@@ -99,4 +99,51 @@ a = by_key(actions, "gpuClockLimitMhz")
 assert a["argv"] == ["nvidia-smi", "-rgc"]
 assert a["status"] == "ok"
 
+# 7. plafond CPU : seuls les gros coeurs (> 2808 MHz) sont touches, jamais les A725.
+GB10_TOPO = {c: (3900000 if c in (5, 6, 7, 8, 9, 15, 16, 17, 18, 19) else 2808000) for c in range(20)}
+actions, rejected = plan({"version": 1, "cpuBigCoreMaxMhz": 3000}, swap_used_bytes=0, cpu_topology=GB10_TOPO)
+a = by_key(actions, "cpuBigCoreMaxMhz")
+assert rejected == []
+assert a["status"] == "ok" and a["argv"] == []
+assert a["detail"] == "scaling_max_freq = 3000 MHz sur cpu5-9,15-19"
+assert [os.path.basename(os.path.dirname(os.path.dirname(p))) for p, _ in a["writes"]] == \
+    ["cpu5", "cpu6", "cpu7", "cpu8", "cpu9", "cpu15", "cpu16", "cpu17", "cpu18", "cpu19"]
+assert all(p.endswith("/cpufreq/scaling_max_freq") and v == "3000000" for p, v in a["writes"])
+
+# 8. plancher : sous 2808 MHz, rien n'est ecrit.
+actions, _ = plan({"version": 1, "cpuBigCoreMaxMhz": 2000}, swap_used_bytes=0, cpu_topology=GB10_TOPO)
+a = by_key(actions, "cpuBigCoreMaxMhz")
+assert a["status"] == "skipped" and "writes" not in a
+
+# 9. null = retour au max d'usine de chaque coeur ; valeur au-dessus du max = bornee au max.
+actions, _ = plan({"version": 1, "cpuBigCoreMaxMhz": None}, swap_used_bytes=0, cpu_topology=GB10_TOPO)
+a = by_key(actions, "cpuBigCoreMaxMhz")
+assert {v for _, v in a["writes"]} == {"3900000"}
+actions, _ = plan({"version": 1, "cpuBigCoreMaxMhz": 4500}, swap_used_bytes=0, cpu_topology=GB10_TOPO)
+assert {v for _, v in by_key(actions, "cpuBigCoreMaxMhz")["writes"]} == {"3900000"}
+
+# 10. cpufreq illisible (aucun gros coeur detecte) -> skipped, rien d'ecrit.
+actions, _ = plan({"version": 1, "cpuBigCoreMaxMhz": 3000}, swap_used_bytes=0, cpu_topology={})
+a = by_key(actions, "cpuBigCoreMaxMhz")
+assert a["status"] == "skipped" and "writes" not in a
+
+# 11. ecriture + relecture sur un faux sysfs.
+import tempfile
+d = tempfile.mkdtemp()
+f = os.path.join(d, "scaling_max_freq")
+open(f, "w").write("3900000")
+assert apply.write_cpufreq([[f, "3000000"]]) == (True, "")
+assert open(f).read() == "3000000"
+ok, err = apply.write_cpufreq([[os.path.join(d, "absent", "scaling_max_freq"), "3000000"]])
+assert not ok and "absent" in err
+
+# 12. read_cpu_topology lit cpuinfo_max_freq et ignore cpufreq/cpuidle/etc.
+root = tempfile.mkdtemp()
+for c, k in ((0, 2808000), (5, 3900000)):
+    os.makedirs(os.path.join(root, "cpu%d" % c, "cpufreq"))
+    open(os.path.join(root, "cpu%d" % c, "cpufreq", "cpuinfo_max_freq"), "w").write("%d\n" % k)
+os.makedirs(os.path.join(root, "cpufreq"))
+os.makedirs(os.path.join(root, "cpu7"))  # cpu hors ligne : pas de cpufreq
+assert apply.read_cpu_topology(root) == {0: 2808000, 5: 3900000}
+
 print("OK - tous les tests passent")

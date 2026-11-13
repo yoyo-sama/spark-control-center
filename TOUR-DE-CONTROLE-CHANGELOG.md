@@ -450,3 +450,38 @@ apt, et l'interface le dit (« this console only reports »).
 Le système annonce 85, `apt list --upgradable` en liste 77 : update-notifier compte aussi les mises à jour
 ESM et échelonnées. Les deux chiffres sont affichés, avec une phrase qui explique l'écart plutôt que d'en
 choisir un arbitrairement.
+
+## 2026-11-13 — Plafond CPU des cœurs X925, à côté du plafond GPU
+
+Origine : le fil NVIDIA « Let's optimize DGX Spark » (forum 387929). Les deux plafonds s'ajoutent : celui du
+GPU (`nvidia-smi -lgc`) coupe les pics de puissance responsables des freezes ; celui du CPU réduit la chaleur
+de fond. Pendant que le GPU calcule, vLLM laisse 2 ou 3 cœurs X925 tourner à vide à 3,9 GHz, et CPU et GPU
+partagent le même budget. Mesure du fil, GPU déjà à 1800 MHz : −10 à 15 W, pic 84–90 °C → ~70 °C, sans perte.
+
+**Réglage** : clé `cpuBigCoreMaxMhz` (défaut affiché 3000 MHz, `null` = retour au max d'usine), appliquée par
+`apply.py` en écrivant `scaling_max_freq` (kHz) des gros cœurs, puis en le relisant : l'action est `failed` si la
+valeur relue dépasse la valeur demandée. Pas de dépendance à `cpupower` (écriture sysfs directe, comme
+`cpupower frequency-set -u`).
+
+**Précautions** :
+- plancher 2808 MHz (max des A725) dans la liste blanche d'`apply.py`, la validation du backend et l'UI ;
+- gros cœurs détectés par `cpuinfo_max_freq` > 2808 MHz plutôt que codés en dur (`cpu5-9,15-19` sur ce GB10) ;
+  une valeur au-dessus du max d'usine est bornée au max ;
+- `gb10-tuning.service` ordonné `After=nv-cpu-governor.service`, qui réécrit les fréquences au boot ;
+- le backend relit `scaling_max_freq` et `scaling_cur_freq` de chaque gros cœur (via `/host/sys`) : badge
+  `Diverged` si l'un dépasse le plafond (réécrit par `nv-cpu-governor` ou autre), à corriger par `Re-apply`.
+
+**Correctif au passage** : le backend lisait `result.json` comme un objet indexé par clé (`actions[key].state`)
+alors qu'`apply.py` écrit une liste `{key, status, detail}`. Les états `failed` et `skipped` n'étaient donc jamais
+affichés ; ils le sont maintenant, pour toutes les cartes.
+
+## ⏳ TEST EN ATTENTE — plafond CPU sur le GB10 (posé le 2026-11-13, non joué)
+
+1. Réinstaller `apply.py` et `gb10-tuning.service` (commandes d'installation du README), puis `daemon-reload`.
+2. Vérifier ce que fait `nv-cpu-governor` : `systemctl cat nv-cpu-governor`. Si c'est un démon qui réécrit les
+   fréquences en continu (et pas un oneshot au boot), `After=` ne suffira pas : le badge passera `Diverged`.
+3. Dans la carte « CPU clock cap (X925 cores) », `Apply` à 3000, puis
+   `grep . /sys/devices/system/cpu/cpu{5..9}/cpufreq/scaling_max_freq /sys/devices/system/cpu/cpu1{5..9}/cpufreq/scaling_max_freq`
+   (attendu 3000000) et `cat /etc/gb10-tuning/result.json`.
+4. Sous une charge vLLM, comparer `scaling_cur_freq` des X925, la puissance et la température max avant/après.
+5. Redémarrer et vérifier que le plafond est toujours en place après `nv-cpu-governor`.

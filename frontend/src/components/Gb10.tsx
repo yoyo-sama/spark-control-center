@@ -8,6 +8,8 @@ import type { Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status, MachineInfo } 
 import Insights from './Insights';
 
 const API_BASE = '/api';
+// Max frequency of the A725 cores: capping the X925 below it makes them the slow cores.
+const CPU_CAP_FLOOR_MHZ = 2808;
 
 const STATE_BADGE: Record<Gb10Status['state'], { label: string; className: string }> = {
   ok: { label: 'OK', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
@@ -133,6 +135,7 @@ export default function Gb10({
   const [seeded, setSeeded] = useState(false);
   const [clockInput, setClockInput] = useState('2100');
   const [swappinessInput, setSwappinessInput] = useState('10');
+  const [cpuCapInput, setCpuCapInput] = useState('3000');
 
   useEffect(() => {
     const load = async () => {
@@ -159,6 +162,7 @@ export default function Gb10({
     if (state && !seeded) {
       setClockInput(String(state.desired.gpuClockLimitMhz ?? 2100));
       setSwappinessInput(String(state.desired.vmSwappiness ?? 10));
+      setCpuCapInput(String(state.desired.cpuBigCoreMaxMhz ?? 3000));
       setSeeded(true);
     }
   }, [state, seeded]);
@@ -177,6 +181,7 @@ export default function Gb10({
       setState(data);
       setClockInput(String(data.desired.gpuClockLimitMhz ?? 2100));
       setSwappinessInput(String(data.desired.vmSwappiness ?? 10));
+      setCpuCapInput(String(data.desired.cpuBigCoreMaxMhz ?? 3000));
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : 'Request failed');
     } finally {
@@ -319,6 +324,62 @@ export default function Gb10({
                 <p>
                   • 2200 MHz, vLLM LLM serving (8-min average, GPU often idle in decode): 63 → 40 W, peak 90 →
                   78°C, −1% decode, −3.9% prefill.
+                </p>
+              </div>
+            </SettingCard>
+
+            <SettingCard title="CPU clock cap (X925 cores)" badge={<Badge status={state.status.cpuBigCoreMaxMhz} />}>
+              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1.5">Desired</p>
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <input
+                  type="number"
+                  min={CPU_CAP_FLOOR_MHZ}
+                  max={5000}
+                  value={cpuCapInput}
+                  onChange={(e) => setCpuCapInput(e.target.value)}
+                  disabled={disabledAll}
+                  className={`w-24 ${inputClass}`}
+                />
+                <span className="text-xs text-muted">MHz</span>
+                <button
+                  onClick={() => apply({ cpuBigCoreMaxMhz: Number(cpuCapInput) })}
+                  disabled={disabledAll || !Number.isInteger(Number(cpuCapInput)) || Number(cpuCapInput) < CPU_CAP_FLOOR_MHZ}
+                  className={buttonClass}
+                >
+                  Apply
+                </button>
+                <button onClick={() => apply({ cpuBigCoreMaxMhz: null })} disabled={disabledAll} className={buttonClass}>
+                  Remove cap
+                </button>
+              </div>
+              {Number(cpuCapInput) < CPU_CAP_FLOOR_MHZ && (
+                <p className="-mt-1 mb-3 text-xs text-red-600 dark:text-red-400">
+                  Minimum {CPU_CAP_FLOOR_MHZ} MHz, the A725 cores&apos; maximum.
+                </p>
+              )}
+              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1.5">
+                Actual{state.actual.cpuBigCores && <span className="normal-case tracking-normal"> · cpu{state.actual.cpuBigCores}</span>}
+              </p>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <MiniStat label="Current (max)" value={fmtMhz(state.actual.cpuBigCoreCurrentMhz)} />
+                <MiniStat label="Cap read back" value={fmtMhz(state.actual.cpuBigCoreMaxMhz)} />
+                <MiniStat label="Stock max" value={fmtMhz(state.actual.cpuBigCoreHwMaxMhz)} />
+              </div>
+              <div className="text-xs text-muted leading-relaxed border-t border-line pt-3 space-y-1">
+                <p>
+                  Adds to the GPU cap, it does not replace it: the GPU cap cuts the power spikes behind the
+                  freezes, this one lowers the background heat. CPU and GPU share one power and thermal budget,
+                  and while the GPU computes, vLLM leaves 2–3 X925 cores busy-waiting at 3.9 GHz.
+                </p>
+                <p>
+                  Community measurement (GPU already at 1800 MHz): −10 to 15 W, peak 84–90°C → ~70°C, no
+                  performance loss.
+                </p>
+                <p>
+                  Never below {CPU_CAP_FLOOR_MHZ} MHz (the A725 cores&apos; max, below it threads migrate to the
+                  wrong cores). Applied after <code className="font-mono">nv-cpu-governor</code>, and read back
+                  from <code className="font-mono">scaling_max_freq</code>: Diverged means something rewrote it,
+                  use Re-apply.
                 </p>
               </div>
             </SettingCard>

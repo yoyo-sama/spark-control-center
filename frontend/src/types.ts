@@ -104,7 +104,8 @@ export type Gb10SettingKey =
   | 'gpuPersistenceMode'
   | 'swapDisabled'
   | 'vmSwappiness'
-  | 'thermalMonitor';
+  | 'thermalMonitor'
+  | 'cpuBigCoreMaxMhz';
 
 export type Gb10SettingState = 'ok' | 'pending' | 'failed' | 'skipped' | 'diverged' | 'unverified' | 'unset';
 
@@ -121,6 +122,7 @@ export interface Gb10Desired {
   swapDisabled: boolean;
   vmSwappiness: number;
   thermalMonitor: boolean;
+  cpuBigCoreMaxMhz: number | null;
 }
 
 export interface Gb10Actual {
@@ -134,6 +136,10 @@ export interface Gb10Actual {
   swapUsedBytes: number | null;
   vmSwappiness: number | null;
   thermalMonitor: boolean | null;
+  cpuBigCores: string | null;
+  cpuBigCoreMaxMhz: number | null;
+  cpuBigCoreCurrentMhz: number | null;
+  cpuBigCoreHwMaxMhz: number | null;
 }
 
 export interface Gb10State {

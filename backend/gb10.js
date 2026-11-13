@@ -10,6 +10,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const Docker = require('dockerode');
 const { memo } = require('./metrics');
+const cpufreq = require('./cpufreq');
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +30,7 @@ const DEFAULT_DESIRED = {
   swapDisabled: false,
   vmSwappiness: 10,
   thermalMonitor: false,
+  cpuBigCoreMaxMhz: 3000,
 };
 
 const BOUNDS = {
@@ -37,6 +39,8 @@ const BOUNDS = {
   swapDisabled: (v) => typeof v === 'boolean',
   vmSwappiness: (v) => Number.isInteger(v) && v >= 0 && v <= 100,
   thermalMonitor: (v) => typeof v === 'boolean',
+  // Never below the A725 max (2808 MHz): the X925 would become the slower cores.
+  cpuBigCoreMaxMhz: (v) => v === null || (Number.isInteger(v) && v >= cpufreq.CPU_FLOOR_MHZ && v <= 5000),
 };
 
 function num(v) {
@@ -130,6 +134,7 @@ function readThermalMonitor() {
 async function _readActual() {
   const gpu = await readGpuActual();
   const swap = readSwapActual();
+  const bigCores = cpufreq.readBigCores();
   return {
     gpuPersistenceMode: gpu.gpuPersistenceMode,
     gpuClockCurrentMhz: gpu.gpuClockCurrentMhz,
@@ -141,18 +146,21 @@ async function _readActual() {
     swapUsedBytes: swap.swapUsedBytes,
     vmSwappiness: readVmSwappiness(),
     thermalMonitor: readThermalMonitor(),
+    ...cpufreq.summarize(bigCores),
+    _cpuBigCores: bigCores,
   };
 }
 // Also collapses readThermalMonitor()'s scan of every /proc/<pid>/cmdline on the host,
 // which would otherwise run on every call.
 const readActual = memo(_readActual, 2000);
 
-const KEYS = ['gpuClockLimitMhz', 'gpuPersistenceMode', 'swapDisabled', 'vmSwappiness', 'thermalMonitor'];
+const KEYS = ['gpuClockLimitMhz', 'gpuPersistenceMode', 'swapDisabled', 'vmSwappiness', 'thermalMonitor', 'cpuBigCoreMaxMhz'];
 
 function computeKeyStatus(key, desired, actual, lastApply) {
-  const action = (lastApply.actions || {})[key];
-  if (action && (action.state === 'failed' || action.state === 'skipped')) {
-    return { state: action.state, message: action.detail || '' };
+  // apply.py writes actions as a list of {key, status, detail}.
+  const action = Array.isArray(lastApply.actions) ? lastApply.actions.find((a) => a.key === key) : null;
+  if (action && (action.status === 'failed' || action.status === 'skipped')) {
+    return { state: action.status, message: action.detail || '' };
   }
   const n = desired[key];
   if (key === 'gpuPersistenceMode' || key === 'thermalMonitor' || key === 'vmSwappiness') {
@@ -166,6 +174,7 @@ function computeKeyStatus(key, desired, actual, lastApply) {
       ? { state: 'ok', message: '' }
       : { state: 'diverged', message: `Host reports ${actual.swapTotalBytes} bytes swap, desired disabled=${n}` };
   }
+  if (key === 'cpuBigCoreMaxMhz') return cpufreq.capStatus(n, actual._cpuBigCores);
   // gpuClockLimitMhz
   if (n === null) return { state: 'ok', message: '' };
   if (actual.gpuClockCurrentMhz === null) return { state: 'unverified', message: 'GPU idle, cap not observable' };
@@ -196,12 +205,12 @@ function computeStatus(stored, desired, actual, lastApply) {
 
 async function buildFullState(stored) {
   const desired = { ...DEFAULT_DESIRED, ...stored };
-  const actual = await readActual();
+  const { _cpuBigCores, ...actual } = await readActual();
   const lastApply = readLastApply();
   return {
     desired,
     actual,
-    status: computeStatus(stored, desired, actual, lastApply),
+    status: computeStatus(stored, desired, { ...actual, _cpuBigCores }, lastApply),
     lastApply,
     pipelineInstalled: lastApply !== null,
   };
