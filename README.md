@@ -11,7 +11,7 @@ Spark Control Center is a web control portal for a DGX Spark workstation (GB10 c
 The sidebar has four sections:
 
 - **GB10** — the home view, labelled dynamically with the detected machine name. GPU and thermal tuning:
-  - **Settings**: GPU clock cap, persistence mode, swap, `vm.swappiness`, thermal monitor
+  - **Settings**: GPU clock cap, CPU clock cap (X925 cores), persistence mode, swap, `vm.swappiness`, thermal monitor
   - **A switch never lies**: every desired setting is compared against what the machine actually reports, with an explicit per-setting state (`ok`, `pending`, `failed`, `skipped`, `diverged`, `unverified`, `unset`) — some GB10 firmwares silently ignore `nvidia-smi -lgc`, and a UI that just echoed the request back would be lying
   - **Only what you set**: settings the user never touched are not persisted
   - **Unprivileged container**: it only writes a desired-state JSON that a root systemd oneshot validates against a strict allow-list and applies (details under "GB10 tuning" below)
@@ -165,9 +165,10 @@ sudo systemctl enable --now gb10-tuning.path gb10-tuning.service
 ```bash
 sudo systemctl disable --now gb10-tuning.path gb10-tuning.service
 sudo nvidia-smi -rgc
+for f in /sys/devices/system/cpu/cpu*/cpufreq; do cat $f/cpuinfo_max_freq | sudo tee $f/scaling_max_freq >/dev/null; done
 ```
 
-`nvidia-smi -rgc` resets the GPU to its factory clocks.
+`nvidia-smi -rgc` resets the GPU to its factory clocks, the loop does the same for the CPU cores.
 
 ### v1 settings and measured effects
 
@@ -176,6 +177,7 @@ sudo nvidia-smi -rgc
 | Root cause of the crashes | A power spike from 14 W to 85 W triggers the over-current protection — **not** a thermal throttle |
 | Clock cap at 2100 MHz | ComfyUI video generation (GPU saturated): 85 W under load brought down to ~50 W, 72–79 °C (barely changed), no more crashes ([NVIDIA forum](https://forums.developer.nvidia.com/t/unlocking-the-power-of-the-spark-in-comfyui-no-crashes/360336)) |
 | Clock cap at 2200 MHz (variant) | vLLM LLM serving, 8-min **average** (decode is memory-bound, the GPU often waits): 63 W → 40 W, peak 90 → 78 °C, no more thermal throttling, at a cost of 1% in decoding and 3.9% in prefill ([agjs/gb10-clock-cap](https://github.com/agjs/gb10-clock-cap)). Not comparable with the 2100 MHz row: different workload and metric |
+| CPU cap at 3000 MHz on the X925 cores | Adds to the GPU cap. While the GPU computes, vLLM leaves 2–3 big cores busy-waiting at 3.9 GHz and CPU and GPU share one budget: with the GPU already at 1800 MHz, capping the X925 cores (`cpu5-9`, `cpu15-19`) via cpufreq `scaling_max_freq` saved another 10–15 W and brought the peak from 84–90 °C to ~70 °C, with no performance loss ([NVIDIA forum](https://forums.developer.nvidia.com/t/lets-optimize-dgx-spark/387929)). Never below 2808 MHz (the A725 cores' max); big cores are detected from `cpuinfo_max_freq`, so the A725 are never touched. `gb10-tuning.service` runs `After=nv-cpu-governor.service`, which rewrites frequencies at boot, and the app reads `scaling_max_freq` back to flag a cap that was rewritten |
 | Power limit | `nvidia-smi -q -d POWER` returns `Power Limit: N/A` on this GPU — the clock cap is the **only** lever, no wattage limit is adjustable |
 | `CUDA_CACHE_MAXSIZE=4294967296` | 20 s/step → 6.6 s/step (×3) |
 

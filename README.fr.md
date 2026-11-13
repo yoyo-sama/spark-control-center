@@ -11,7 +11,7 @@ Spark Control Center est un portail web de contrôle pour une station DGX Spark 
 La barre latérale comporte quatre sections :
 
 - **GB10** — la vue d'accueil, étiquetée dynamiquement avec le nom de la machine détectée. Réglage GPU et thermique :
-  - **Réglages** : plafond d'horloge GPU, mode persistance, swap, `vm.swappiness`, monitoring thermique
+  - **Réglages** : plafond d'horloge GPU, plafond CPU (cœurs X925), mode persistance, swap, `vm.swappiness`, monitoring thermique
   - **Un interrupteur ne ment jamais** : chaque réglage désiré est comparé à ce que la machine rapporte réellement, avec un état explicite par réglage (`ok`, `pending`, `failed`, `skipped`, `diverged`, `unverified`, `unset`) — certains firmwares GB10 ignorent silencieusement `nvidia-smi -lgc`, et une interface qui se contenterait de renvoyer la demande mentirait
   - **Uniquement ce que vous posez** : les réglages auxquels l'utilisateur n'a pas touché ne sont pas persistés
   - **Conteneur non privilégié** : il ne fait qu'écrire un JSON d'état désiré qu'un oneshot systemd root valide contre une liste blanche stricte et applique (détails plus bas sous « Réglages GB10 »)
@@ -165,9 +165,10 @@ sudo systemctl enable --now gb10-tuning.path gb10-tuning.service
 ```bash
 sudo systemctl disable --now gb10-tuning.path gb10-tuning.service
 sudo nvidia-smi -rgc
+for f in /sys/devices/system/cpu/cpu*/cpufreq; do cat $f/cpuinfo_max_freq | sudo tee $f/scaling_max_freq >/dev/null; done
 ```
 
-`nvidia-smi -rgc` rend au GPU ses horloges d'usine.
+`nvidia-smi -rgc` rend au GPU ses horloges d'usine, la boucle fait de même pour les cœurs CPU.
 
 ### Réglages v1 et effets mesurés
 
@@ -176,6 +177,7 @@ sudo nvidia-smi -rgc
 | Cause racine des crashs | Un pic de puissance de 14 W à 85 W déclenche la protection de surintensité — **pas** un throttle thermique |
 | Plafond d'horloge à 2100 MHz | Génération vidéo ComfyUI (GPU saturé) : 85 W en charge ramenés à ~50 W, 72–79 °C (quasi inchangé), plus de crash ([forum NVIDIA](https://forums.developer.nvidia.com/t/unlocking-the-power-of-the-spark-in-comfyui-no-crashes/360336)) |
 | Plafond à 2200 MHz (variante) | Service LLM vLLM, **moyenne** sur 8 min (le décodage est limité par la mémoire, le GPU attend souvent) : 63 W → 40 W, pic 90 → 78 °C, plus de throttling thermique, au coût de 1% en décodage et 3,9% en préfill ([agjs/gb10-clock-cap](https://github.com/agjs/gb10-clock-cap)). Non comparable à la ligne 2100 MHz : charge et mesure différentes |
+| Plafond CPU à 3000 MHz sur les cœurs X925 | S'ajoute au plafond GPU. Pendant que le GPU calcule, vLLM laisse 2 ou 3 gros cœurs tourner à vide à 3,9 GHz, et CPU et GPU partagent le même budget : avec le GPU déjà à 1800 MHz, plafonner les X925 (`cpu5-9`, `cpu15-19`) via `scaling_max_freq` de cpufreq a fait gagner encore 10 à 15 W et ramené le pic de 84–90 °C vers ~70 °C, sans perte de performance ([forum NVIDIA](https://forums.developer.nvidia.com/t/lets-optimize-dgx-spark/387929)). Jamais sous 2808 MHz (le max des cœurs A725) ; les gros cœurs sont détectés par `cpuinfo_max_freq`, les A725 ne sont donc jamais touchés. `gb10-tuning.service` passe `After=nv-cpu-governor.service`, qui réécrit les fréquences au boot, et l'app relit `scaling_max_freq` pour signaler un plafond écrasé |
 | Limite de puissance | `nvidia-smi -q -d POWER` renvoie `Power Limit: N/A` sur ce GPU — le plafond d'horloge est le **seul** levier, aucune limite en watts n'est réglable |
 | `CUDA_CACHE_MAXSIZE=4294967296` | 20 s/step → 6,6 s/step (×3) |
 
