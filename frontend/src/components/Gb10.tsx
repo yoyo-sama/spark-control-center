@@ -12,7 +12,7 @@ const API_BASE = '/api';
 const CPU_CAP_FLOOR_MHZ = 2808;
 
 const STATE_BADGE: Record<Gb10Status['state'], { label: string; className: string }> = {
-  ok: { label: 'OK', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  ok: { label: 'Configured', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
   pending: { label: 'Pending', className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
   failed: { label: 'Failed', className: 'bg-red-500/10 text-red-600 dark:text-red-400' },
   skipped: { label: 'Skipped', className: 'bg-hover text-muted' },
@@ -49,6 +49,13 @@ function Badge({ status }: { status: Gb10Status }) {
       {status.message && <p className="mt-1 text-[11px] text-muted max-w-[200px]">{status.message}</p>}
     </div>
   );
+}
+
+// The input is pre-filled with a suggested value even when nothing is stored: say so,
+// otherwise the number reads like a cap already in place.
+function UnsetHint({ status }: { status: Gb10Status }) {
+  if (status.state !== 'unset') return null;
+  return <p className="-mt-1 mb-3 text-xs text-muted">Not applied: suggested value only. Click Apply to set the cap.</p>;
 }
 
 function SettingCard({ title, badge, children }: { title: string; badge: React.ReactNode; children: React.ReactNode }) {
@@ -301,10 +308,15 @@ export default function Gb10({
                 >
                   Apply
                 </button>
-                <button onClick={() => apply({ gpuClockLimitMhz: null })} disabled={disabledAll} className={buttonClass}>
+                <button
+                  onClick={() => apply({ gpuClockLimitMhz: null })}
+                  disabled={disabledAll || state.status.gpuClockLimitMhz.state === 'unset'}
+                  className={buttonClass}
+                >
                   Remove cap
                 </button>
               </div>
+              <UnsetHint status={state.status.gpuClockLimitMhz} />
               <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1.5">Actual</p>
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <MiniStat label="Current" value={fmtMhz(state.actual.gpuClockCurrentMhz)} />
@@ -348,10 +360,15 @@ export default function Gb10({
                 >
                   Apply
                 </button>
-                <button onClick={() => apply({ cpuBigCoreMaxMhz: null })} disabled={disabledAll} className={buttonClass}>
+                <button
+                  onClick={() => apply({ cpuBigCoreMaxMhz: null })}
+                  disabled={disabledAll || state.status.cpuBigCoreMaxMhz.state === 'unset'}
+                  className={buttonClass}
+                >
                   Remove cap
                 </button>
               </div>
+              <UnsetHint status={state.status.cpuBigCoreMaxMhz} />
               {Number(cpuCapInput) < CPU_CAP_FLOOR_MHZ && (
                 <p className="-mt-1 mb-3 text-xs text-red-600 dark:text-red-400">
                   Minimum {CPU_CAP_FLOOR_MHZ} MHz, the A725 cores&apos; maximum.
