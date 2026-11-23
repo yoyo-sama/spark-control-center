@@ -2,7 +2,7 @@
 
 > Document de passation : tout ce qu'un autre assistant (ou un humain) doit savoir pour reprendre le projet
 > à froid. **À tenir à jour à chaque changement notable** (voir `CLAUDE.md`).
-> Dernière mise à jour : 2026-11-23, sur `main` = `0ee2b1d` (merge de la PR #6) + PR #7 (carte thermique).
+> Dernière mise à jour : 2026-11-23, sur `main` = merge de la PR #8 (carte stockage), après `99f3dd9` (PR #7).
 
 ## 1. En une phrase
 
@@ -56,6 +56,7 @@ backend/
   gb10.js       /api/gb10 : état désiré/réel, défaut plafond GPU 2100 MHz, statuts de divergence
   cpufreq.js    lecture des gros cœurs X925 (scaling_max_freq / cur_freq via /host/sys)
   thermal.js    GET /api/gb10/thermal : ventilateurs ACPI, zones thermiques, versions BIOS/EC (lecture seule)
+  storage.js    GET /api/gb10/storage : disques (/sys/block), partitions (mountinfo de l'hôte), espace libre (statfs)
   apps.js       /api/apps : registre ComfyUI / opencode / Claude Code + pipeline d'édition
   skills.js     /api/skills : skills partagés opencode / Claude Code
   insights.js   /api/insights : moteur de constats ; rules.js = catalogue des règles
@@ -120,6 +121,10 @@ host/
   ventile seul**. Test du 2026-11-23 : `cur_state` à 50 puis 100 (~40 s) sans hausse de tr/min observée
   côté app ni à l'oreille (Lionel) → **ignoré par l'EC : pas de pilotage des ventilateurs possible** avec
   ce firmware. À retester à chaque nouvelle version d'EC.
+- Disque : **Micron 2500 2048 Go** NVMe (`nvme0n1`, firmware `25000102`), lien **PCIe Gen4 x4** (au
+  maximum), `nvme0n1p1` = `/boot/efi` vfat 537 Mo, `nvme0n1p2` = `/` ext4 (vérifié 2026-11-23). Dans le
+  conteneur, `/proc/1/root` est refusé (EACCES) : l'espace libre passe par `statfs` sur un bind mount de
+  la même partition (`/etc/gb10-tuning`).
 
 ## 6. Décisions prises
 
@@ -145,7 +150,8 @@ conteneur non privilégié ; défaut plafond GPU 2100 MHz, CPU 3000 MHz suggér�
 | PR | Branche | État |
 |---|---|---|
 | #4 Plafond CPU X925 | `claude/project-thread-87ri6q` | **Mergée** 2026-11-13, déployée sur le GB10 le 2026-11-14. **Jamais appliquée** : Lionel doit cliquer `Apply` à 3000 dans la carte « CPU clock cap » puis suivre le protocole « ⏳ TEST EN ATTENTE — plafond CPU » du changelog. |
-| #7 Carte « Thermal & fans » | `claude/project-thread-glt4i6` | **Ouverte**, déployée sur le GB10 le 2026-11-23. Lecture seule ; pilotage des ventilateurs écarté (l'EC ignore `cur_state`). |
+| #8 Carte « Storage » | `claude/project-thread-minxlp` | **Mergée** 2026-11-23, déployée sur le GB10 (rendu vérifié). Lecture seule : modèle, techno, interface, capacité, espace libre par partition. |
+| #7 Carte « Thermal & fans » | `claude/project-thread-glt4i6` | **Mergée** 2026-11-23. Lecture seule ; pilotage des ventilateurs écarté (l'EC ignore `cur_state`). |
 | #6 Handover | `claude/project-thread-xxhyez` | **Mergée** 2026-11-23. |
 | #5 Màj en locale fr + badges | `claude/project-thread-yb6hsc` | **Mergée**. Compteurs/liste apt lus avec `LC_ALL=C` (un GB10 en `fr_FR` affichait « à jour » à tort) ; badge « Configured » et mention de la valeur suggérée sur les plafonds. Après merge : réinstaller `dgx-updates.sh` sur l'hôte. |
 | #3 Montage `.claude.json` | `claude/project-thread-iwzm9h` | Ouverte. Empêche Docker de créer `~/.claude.json` en répertoire. |

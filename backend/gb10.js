@@ -12,6 +12,7 @@ const Docker = require('dockerode');
 const { memo } = require('./metrics');
 const cpufreq = require('./cpufreq');
 const thermal = require('./thermal');
+const storage = require('./storage');
 
 const execFileAsync = promisify(execFile);
 
@@ -226,6 +227,12 @@ router.get('/state', async (req, res) => {
 const readThermal = memo(async () => thermal.readThermal(), 2000);
 router.get('/thermal', async (req, res) => {
   res.json(await readThermal());
+});
+
+// Read-only: disks (model, technology, interface, capacity) and free space per partition.
+const readStorage = memo(async () => storage.readStorage(), 5000);
+router.get('/storage', async (req, res) => {
+  res.json(await readStorage());
 });
 
 router.put('/state', async (req, res) => {
