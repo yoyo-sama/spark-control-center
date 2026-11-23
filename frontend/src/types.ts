@@ -407,3 +407,30 @@ export interface ClaudeCodeState {
   mcp?: ClaudeCodeMcp;
   hooks?: ClaudeCodeHooks;
 }
+
+export interface ThermalFan {
+  id: string;
+  name: string;
+  rpm: number | null;
+  level: number | null;
+  maxLevel: number | null;
+}
+
+export interface ThermalZone {
+  id: string;
+  name: string;
+  label: string;
+  tempC: number | null;
+  criticalC: number | null;
+}
+
+export interface ThermalInfo {
+  fans: ThermalFan[];
+  zones: ThermalZone[];
+  firmware: {
+    biosVersion: string | null;
+    biosDate: string | null;
+    uefiCapsuleVersion: string | null;
+    ecVersion: string | null;
+  };
+}

@@ -11,6 +11,7 @@ Spark Control Center is a web control portal for a DGX Spark workstation (GB10 c
 The sidebar has four sections:
 
 - **GB10** — the home view, labelled dynamically with the detected machine name. GPU and thermal tuning:
+  - **Thermal & fans** (read-only): RPM of both ACPI fans, the ACPI thermal zones (SoC, GPU, CPU clusters, uncore) and the BIOS / Embedded Controller versions — exposed since BIOS 5.0; the fans stay driven by the EC
   - **Settings**: GPU clock cap, CPU clock cap (X925 cores), persistence mode, swap, `vm.swappiness`, thermal monitor
   - **A switch never lies**: every desired setting is compared against what the machine actually reports, with an explicit per-setting state (`ok`, `pending`, `failed`, `skipped`, `diverged`, `unverified`, `unset`) — some GB10 firmwares silently ignore `nvidia-smi -lgc`, and a UI that just echoed the request back would be lying
   - **Only what you set**: settings the user never touched are not persisted
@@ -280,6 +281,7 @@ Without the timer installed, `/api/updates` still returns 200 with `pipelineInst
 | GET | `/api/gb10/state` | GB10 desired + actual state |
 | PUT | `/api/gb10/state` | Update the desired GB10 state |
 | POST | `/api/gb10/reapply` | Re-trigger the host-side apply |
+| GET | `/api/gb10/thermal` | Fans (RPM, ACPI level), thermal zones, BIOS / EC versions (read-only) |
 | GET | `/api/apps` | App registry summary |
 | GET | `/api/apps/:id` | App detail (detection, facts) |
 | POST | `/api/apps/:id/preview` | Preview an app config edit (diff + warnings) |

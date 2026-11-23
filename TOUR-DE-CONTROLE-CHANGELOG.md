@@ -487,3 +487,34 @@ affichés ; ils le sont maintenant, pour toutes les cartes.
    (attendu 3000000) et `cat /etc/gb10-tuning/result.json`.
 4. Sous une charge vLLM, comparer `scaling_cur_freq` des X925, la puissance et la température max avant/après.
 5. Redémarrer et vérifier que le plafond est toujours en place après `nv-cpu-governor`.
+
+## 2026-11-23 — Carte « Thermal & fans » en lecture seule (BIOS 5.0 / EC)
+
+Origine : Lionel a installé le BIOS 5.36_5.0.0 (28/10/2026) sur la Dell Pro Max with GB10 et demande si
+le contrôle thermique et la vitesse des ventilateurs sont désormais pilotables depuis l'app.
+
+**Étude (sans rien modifier).** EC en `0x02000d00` (fwupd, aucune mise à jour proposée). Le firmware
+expose deux ventilateurs ACPI `\_SB.FAN0` / `\_SB.FAN1` (`PNP0C0B`, pilote `acpi_fan`) : tr/min lisibles
+via hwmon `fan1_input`, et un cooling device « Fan » de niveau 0–100 (`cur_state` écrivable par root).
+Sept zones thermiques ACPI (`TSOC`, `TS0E`, `TS0P`, `TS1E`, `TS1P`, `TGPU`, `TUNC`), avec pour seule
+consigne un arrêt critique à 104,8 °C et aucun ventilateur lié : c'est l'EC qui ventile, seul. Pas d'EC
+ACPI (`PNP0C09`), pas de WMI, pas d'IPMI ; `nvidia-smi` ne voit ni ventilateurs ni limite de puissance.
+Les pilotes communautaires (`dgx-spark-fan-control`, `dgx-spark-fan-override`) ne visent que la carte
+FE P4242. Le libellé « cluster n · efficiency/performance » des zones `TSnE/TSnP` est déduit des noms,
+non documenté.
+
+**Livré.** `backend/thermal.js` (+ `thermal.test.js`) lit ventilateurs, zones et versions via
+`/host/sys` (BIOS par DMI, EC et capsule UEFI par l'ESRT, lisible car le conteneur tourne en root) ;
+route `GET /api/gb10/thermal` (mémo 2 s) ; `frontend/src/components/ThermalCard.tsx` affichée au-dessus
+des réglages, rafraîchie toutes les 5 s, masquée si l'API échoue. Aucune écriture sur l'hôte.
+
+**Premier test de pilotage (Lionel, 2026-11-23 10:17).** `echo 50 > cooling_device0/cur_state` :
+les deux ventilateurs affichent ensuite le niveau 50, mais leurs tr/min ne bougent pas (~2020 / 2060).
+Niveau 50 sans effet visible au repos : l'EC l'ignore, ou il agit comme plancher sous la demande
+actuelle. À trancher avant tout réglage « plancher ventilateurs » dans `apply.py`.
+
+## ⏳ TEST EN ATTENTE — effet de `cur_state` sur les ventilateurs (2026-11-23)
+
+Écrire `100` puis relire `fan1_input` des deux ventilateurs, puis remettre `0`. Si les tr/min montent :
+niveau = plancher ou consigne, on peut ajouter un réglage (avec remise à 0 au boot et à l'arrêt). Sinon,
+le contrôle n'est pas exposé par ce firmware.
