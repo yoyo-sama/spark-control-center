@@ -11,6 +11,7 @@ const { promisify } = require('util');
 const Docker = require('dockerode');
 const { memo } = require('./metrics');
 const cpufreq = require('./cpufreq');
+const thermal = require('./thermal');
 
 const execFileAsync = promisify(execFile);
 
@@ -218,6 +219,13 @@ async function buildFullState(stored) {
 
 router.get('/state', async (req, res) => {
   res.json(await buildFullState(readStored()));
+});
+
+// Read-only: fans, thermal zones and firmware versions. Not part of the desired/actual
+// pipeline, since nothing here is applied to the host.
+const readThermal = memo(async () => thermal.readThermal(), 2000);
+router.get('/thermal', async (req, res) => {
+  res.json(await readThermal());
 });
 
 router.put('/state', async (req, res) => {

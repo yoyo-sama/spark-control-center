@@ -11,6 +11,7 @@ Spark Control Center est un portail web de contrôle pour une station DGX Spark 
 La barre latérale comporte quatre sections :
 
 - **GB10** — la vue d'accueil, étiquetée dynamiquement avec le nom de la machine détectée. Réglage GPU et thermique :
+  - **Thermique et ventilateurs** (lecture seule) : vitesse des deux ventilateurs ACPI, zones thermiques ACPI (SoC, GPU, clusters CPU, uncore) et versions BIOS / Embedded Controller — exposés depuis le BIOS 5.0 ; les ventilateurs restent pilotés par l'EC
   - **Réglages** : plafond d'horloge GPU, plafond CPU (cœurs X925), mode persistance, swap, `vm.swappiness`, monitoring thermique
   - **Un interrupteur ne ment jamais** : chaque réglage désiré est comparé à ce que la machine rapporte réellement, avec un état explicite par réglage (`ok`, `pending`, `failed`, `skipped`, `diverged`, `unverified`, `unset`) — certains firmwares GB10 ignorent silencieusement `nvidia-smi -lgc`, et une interface qui se contenterait de renvoyer la demande mentirait
   - **Uniquement ce que vous posez** : les réglages auxquels l'utilisateur n'a pas touché ne sont pas persistés
@@ -280,6 +281,7 @@ Sans le timer installé, `/api/updates` renvoie quand même 200 avec `pipelineIn
 | GET | `/api/gb10/state` | État désiré + réel GB10 |
 | PUT | `/api/gb10/state` | Modifier l'état désiré GB10 |
 | POST | `/api/gb10/reapply` | Redéclencher l'application côté hôte |
+| GET | `/api/gb10/thermal` | Ventilateurs (tr/min, niveau ACPI), zones thermiques, versions BIOS / EC (lecture seule) |
 | GET | `/api/apps` | Résumé du registre des apps |
 | GET | `/api/apps/:id` | Détail d'une app (détection, facts) |
 | POST | `/api/apps/:id/preview` | Aperçu d'une modification de config (diff + avertissements) |
