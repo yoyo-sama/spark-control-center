@@ -118,7 +118,8 @@ host/
   au repos) et un cooling device « Fan » 0–100 écrivable par root ; 7 zones ACPI (`TSOC`, `TS0E`, `TS0P`,
   `TS1E`, `TS1P`, `TGPU`, `TUNC`) avec un seul trip critique à 104,8 °C, aucun ventilateur lié : **l'EC
   ventile seul**. Test du 2026-11-23 : `cur_state` à 50 puis 100 (~40 s) sans hausse de tr/min observée
-  côté app → a priori ignoré par l'EC (confirmation visuelle/auditive de Lionel attendue).
+  côté app ni à l'oreille (Lionel) → **ignoré par l'EC : pas de pilotage des ventilateurs possible** avec
+  ce firmware. À retester à chaque nouvelle version d'EC.
 
 ## 6. Décisions prises
 
@@ -144,7 +145,7 @@ conteneur non privilégié ; défaut plafond GPU 2100 MHz, CPU 3000 MHz suggér�
 | PR | Branche | État |
 |---|---|---|
 | #4 Plafond CPU X925 | `claude/project-thread-87ri6q` | **Mergée** 2026-11-13, déployée sur le GB10 le 2026-11-14. **Jamais appliquée** : Lionel doit cliquer `Apply` à 3000 dans la carte « CPU clock cap » puis suivre le protocole « ⏳ TEST EN ATTENTE — plafond CPU » du changelog. |
-| #7 Carte « Thermal & fans » | `claude/project-thread-glt4i6` | **Ouverte**, déployée sur le GB10 le 2026-11-23. Lecture seule ; pas de pilotage des ventilateurs tant que l'effet de `cur_state` n'est pas prouvé. |
+| #7 Carte « Thermal & fans » | `claude/project-thread-glt4i6` | **Ouverte**, déployée sur le GB10 le 2026-11-23. Lecture seule ; pilotage des ventilateurs écarté (l'EC ignore `cur_state`). |
 | #6 Handover | `claude/project-thread-xxhyez` | **Mergée** 2026-11-23. |
 | #5 Màj en locale fr + badges | `claude/project-thread-yb6hsc` | **Mergée**. Compteurs/liste apt lus avec `LC_ALL=C` (un GB10 en `fr_FR` affichait « à jour » à tort) ; badge « Configured » et mention de la valeur suggérée sur les plafonds. Après merge : réinstaller `dgx-updates.sh` sur l'hôte. |
 | #3 Montage `.claude.json` | `claude/project-thread-iwzm9h` | Ouverte. Empêche Docker de créer `~/.claude.json` en répertoire. |

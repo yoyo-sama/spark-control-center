@@ -513,8 +513,9 @@ les deux ventilateurs affichent ensuite le niveau 50, mais leurs tr/min ne bouge
 Niveau 50 sans effet visible au repos : l'EC l'ignore, ou il agit comme plancher sous la demande
 actuelle. À trancher avant tout réglage « plancher ventilateurs » dans `apply.py`.
 
-## ⏳ TEST EN ATTENTE — effet de `cur_state` sur les ventilateurs (2026-11-23)
+## ✅ Test joué — effet de `cur_state` sur les ventilateurs (2026-11-23)
 
-Écrire `100` puis relire `fan1_input` des deux ventilateurs, puis remettre `0`. Si les tr/min montent :
-niveau = plancher ou consigne, on peut ajouter un réglage (avec remise à 0 au boot et à l'arrêt). Sinon,
-le contrôle n'est pas exposé par ce firmware.
+Lionel a écrit `50` puis `100` dans `cooling_device0/cur_state` (niveau tenu ~40 s à 100), puis `0`.
+Aucune hausse de tr/min relevée par l'app, aucun bruit de ventilateur. Conclusion : avec le BIOS 5.0 et
+l'EC `0x02000d00`, le niveau ACPI est accepté mais ignoré par l'EC ; pas de réglage « plancher
+ventilateurs » dans `apply.py`. La carte reste en lecture seule. À retester à chaque nouvel EC.

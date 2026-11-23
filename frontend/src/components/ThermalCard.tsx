@@ -106,8 +106,8 @@ export default function ThermalCard() {
 
       <p className="mt-3 pt-3 border-t border-line text-xs text-muted leading-relaxed">
         The Embedded Controller drives both fans on its own from its temperature sensors; the OS only holds a
-        critical shutdown trip per zone. Fan control from this page is not available yet: whether the ACPI fan
-        level (0–100) is honoured by the EC is still being tested on this firmware.
+        critical shutdown trip per zone. Fan control is not possible on this firmware: the ACPI fan level (0–100)
+        is accepted but ignored by the EC (tested at 50 and 100 under BIOS 5.0 / EC 0x02000d00).
       </p>
     </div>
   );
