@@ -2,7 +2,7 @@
 
 > Document de passation : tout ce qu'un autre assistant (ou un humain) doit savoir pour reprendre le projet
 > à froid. **À tenir à jour à chaque changement notable** (voir `CLAUDE.md`).
-> Dernière mise à jour : 2026-11-23, sur `main` = `d78193e` (merge de la PR #4).
+> Dernière mise à jour : 2026-11-23, sur `main` = `0ee2b1d` (merge de la PR #6) + PR #7 (carte thermique).
 
 ## 1. En une phrase
 
@@ -55,6 +55,7 @@ backend/
   index.js      API conteneurs, système, déploiement GitHub (SSE), terminal WS, montage des routeurs
   gb10.js       /api/gb10 : état désiré/réel, défaut plafond GPU 2100 MHz, statuts de divergence
   cpufreq.js    lecture des gros cœurs X925 (scaling_max_freq / cur_freq via /host/sys)
+  thermal.js    GET /api/gb10/thermal : ventilateurs ACPI, zones thermiques, versions BIOS/EC (lecture seule)
   apps.js       /api/apps : registre ComfyUI / opencode / Claude Code + pipeline d'édition
   skills.js     /api/skills : skills partagés opencode / Claude Code
   insights.js   /api/insights : moteur de constats ; rules.js = catalogue des règles
@@ -110,6 +111,14 @@ host/
   est le seul levier de puissance. Certains firmwares ignorent `nvidia-smi -lgc`, d'où la relecture.
 - Cause des freezes sous charge : pic de puissance 14 W → 85 W (protection de surintensité), pas un
   throttle thermique.
+- Machine : **Dell Pro Max with GB10** (carte 038RY7), pas la DGX Spark FE (P4242) : les pilotes
+  ventilateurs communautaires visant la P4242 ne s'appliquent pas. **BIOS 5.36_5.0.0** (28/10/2026,
+  installé le 2026-11-21), **EC `0x02000d00`** (lu par l'ESRT, GUID `78c7f535-…`).
+- Depuis le BIOS 5.0 : deux ventilateurs ACPI `\_SB.FAN0/FAN1` (`PNP0C0B`, hwmon `acpi_fan`, ~2000 tr/min
+  au repos) et un cooling device « Fan » 0–100 écrivable par root ; 7 zones ACPI (`TSOC`, `TS0E`, `TS0P`,
+  `TS1E`, `TS1P`, `TGPU`, `TUNC`) avec un seul trip critique à 104,8 °C, aucun ventilateur lié : **l'EC
+  ventile seul**. Test du 2026-11-23 : `cur_state` à 50 puis 100 (~40 s) sans hausse de tr/min observée
+  côté app → a priori ignoré par l'EC (confirmation visuelle/auditive de Lionel attendue).
 
 ## 6. Décisions prises
 
@@ -135,7 +144,9 @@ conteneur non privilégié ; défaut plafond GPU 2100 MHz, CPU 3000 MHz suggér�
 | PR | Branche | État |
 |---|---|---|
 | #4 Plafond CPU X925 | `claude/project-thread-87ri6q` | **Mergée** 2026-11-13, déployée sur le GB10 le 2026-11-14. **Jamais appliquée** : Lionel doit cliquer `Apply` à 3000 dans la carte « CPU clock cap » puis suivre le protocole « ⏳ TEST EN ATTENTE — plafond CPU » du changelog. |
-| #5 Màj en locale fr + badges | `claude/project-thread-yb6hsc` | **Ouverte**. Compteurs/liste apt lus avec `LC_ALL=C` (un GB10 en `fr_FR` affichait « à jour » à tort) ; badge « Configured » et mention de la valeur suggérée sur les plafonds. Après merge : réinstaller `dgx-updates.sh` sur l'hôte. |
+| #7 Carte « Thermal & fans » | `claude/project-thread-glt4i6` | **Ouverte**, déployée sur le GB10 le 2026-11-23. Lecture seule ; pas de pilotage des ventilateurs tant que l'effet de `cur_state` n'est pas prouvé. |
+| #6 Handover | `claude/project-thread-xxhyez` | **Mergée** 2026-11-23. |
+| #5 Màj en locale fr + badges | `claude/project-thread-yb6hsc` | **Mergée**. Compteurs/liste apt lus avec `LC_ALL=C` (un GB10 en `fr_FR` affichait « à jour » à tort) ; badge « Configured » et mention de la valeur suggérée sur les plafonds. Après merge : réinstaller `dgx-updates.sh` sur l'hôte. |
 | #3 Montage `.claude.json` | `claude/project-thread-iwzm9h` | Ouverte. Empêche Docker de créer `~/.claude.json` en répertoire. |
 | #2 Benchmarks AIPerf | `claude/clever-volta-bglwf1` | Ouverte, antérieure à #4 (à rebaser). |
 | #1 Cadrage module Agents | `cadrage/module-agents` | Ouverte, document seul, antérieure à #4. |
