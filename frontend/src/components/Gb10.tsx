@@ -5,6 +5,7 @@ import ConfirmModal from './ConfirmModal';
 import MachineCard from './MachineCard';
 import UpdatesCard from './UpdatesCard';
 import ThermalCard from './ThermalCard';
+import StorageCard from './StorageCard';
 import type { Gb10Desired, Gb10SettingKey, Gb10State, Gb10Status, MachineInfo } from '../types';
 import Insights from './Insights';
 
@@ -288,6 +289,8 @@ export default function Gb10({
           </div>
 
           <ThermalCard />
+
+          <StorageCard />
 
           <h2 className="text-sm font-semibold tracking-tight mb-3">Settings</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">

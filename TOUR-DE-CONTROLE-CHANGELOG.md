@@ -519,3 +519,27 @@ Lionel a écrit `50` puis `100` dans `cooling_device0/cur_state` (niveau tenu ~4
 Aucune hausse de tr/min relevée par l'app, aucun bruit de ventilateur. Conclusion : avec le BIOS 5.0 et
 l'EC `0x02000d00`, le niveau ACPI est accepté mais ignoré par l'EC ; pas de réglage « plancher
 ventilateurs » dans `apply.py`. La carte reste en lecture seule. À retester à chaque nouvel EC.
+
+## 2026-11-23 — Carte « Storage » en lecture seule (disque, technologie, espace libre)
+
+Demande de Lionel : voir dans la page GB10 les infos du disque (modèle, technologie, capacité, espace
+libre). Tout se lit sans `sudo` et sans nouveau montage :
+
+- **Disques** : `/host/sys/block/<disque>` (loop, ram, zram, dm, md exclus). NVMe : modèle, série,
+  firmware sous `device/`, lien PCIe sous `device/device/current_link_{speed,width}` (16 GT/s → Gen4),
+  température « Composite » du hwmon du contrôleur. Autres disques : `queue/rotational` → SSD / HDD,
+  interface déduite du chemin sysfs (USB, SATA, virtio, MMC).
+- **Partitions** : points de montage et système de fichiers lus dans `/proc/1/mountinfo` (la table de
+  montage de l'**hôte**, le conteneur étant en `pid: host`).
+- **Espace libre** : `statfs` sur un bind mount du conteneur portant le même `major:minor` (ici
+  `/etc/gb10-tuning` pour la racine). `/proc/1/root` est refusé (EACCES, pas de `CAP_SYS_PTRACE`). La
+  partition EFI, non montée dans le conteneur, n'affiche que sa taille. Libre = `bavail` (le « Avail »
+  de `df`).
+
+Fichiers : `backend/storage.js` (+ `storage.test.js`, 5 tests), route `GET /api/gb10/storage` (mémo 5 s),
+`frontend/src/components/StorageCard.tsx` sous la carte thermique, rafraîchie toutes les 30 s, masquée
+si l'API échoue. Tailles en unités décimales (comme l'étiquette du disque), mention dans la carte.
+
+**Vérifié sur le GB10 (promaxgb10)** : Micron 2500 2048 Go (`2500 Micron 2048GB`, firmware `25000102`),
+NVMe SSD en PCIe Gen4 x4 (lien au maximum), 2,05 TB, ~42 °C ; `/` ext4 2,01 TB dont 1,27 TB libres
+(identique à `df`), `/boot/efi` vfat 537 MB.

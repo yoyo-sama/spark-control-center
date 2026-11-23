@@ -434,3 +434,32 @@ export interface ThermalInfo {
     ecVersion: string | null;
   };
 }
+
+export interface StoragePartition {
+  name: string;
+  sizeBytes: number | null;
+  mountPoint: string | null;
+  fsType: string | null;
+  totalBytes: number | null;
+  usedBytes: number | null;
+  freeBytes: number | null;
+}
+
+export interface StorageDisk {
+  name: string;
+  model: string | null;
+  serial: string | null;
+  firmware: string | null;
+  technology: string | null;
+  interface: string | null;
+  maxInterface: string | null;
+  removable: boolean;
+  tempC: number | null;
+  sizeBytes: number;
+  freeBytes: number | null;
+  partitions: StoragePartition[];
+}
+
+export interface StorageInfo {
+  disks: StorageDisk[];
+}
