@@ -22,7 +22,15 @@ services:
       - ${SPARK_HOME:-$HOME}/.claude:${SPARK_HOME:-$HOME}/.claude
       # Fichier unique, lecture seule : on n'y lit que les mcpServers (global + par projet),
       # le reste est l'historique des projets et ne sort jamais de l'API.
-      - ${SPARK_HOME:-$HOME}/.claude.json:${SPARK_HOME:-$HOME}/.claude.json:ro
+      # Syntaxe longue pour create_host_path: false : en syntaxe courte, un fichier
+      # absent devient un RÉPERTOIRE créé par Docker. Le conteneur garde alors un point
+      # de montage répertoire et refuse de démarrer dès que le vrai fichier apparaît.
+      - type: bind
+        source: ${SPARK_HOME:-$HOME}/.claude.json
+        target: ${SPARK_HOME:-$HOME}/.claude.json
+        read_only: true
+        bind:
+          create_host_path: false
       - ${SPARK_HOME:-$HOME}/.agents:${SPARK_HOME:-$HOME}/.agents
       # ~/.claude/skills/watch est un lien vers ce répertoire : sans ce montage
       # le lien est cassé dans le conteneur et la skill disparaît de la liste.
