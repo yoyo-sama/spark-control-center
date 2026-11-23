@@ -206,7 +206,8 @@ Les endpoints `/api/v1/updates/*` du DGX Dashboard exigent leur propre authentif
 
 Le flux est **à sens unique, hôte → app** : `dgx-updates.timer` tourne chaque heure sur l'hôte et écrit `/var/lib/spark-control-center/updates.json`, que cette app ne fait que lire. Contrairement au pipeline `gb10-tuning`, rien de ce que l'app écrit ne déclenche jamais de commande côté hôte : aucune liste blanche n'est nécessaire ici.
 
-- Les compteurs (`85 mises à jour`, `14 de sécurité`) viennent directement de `/var/lib/update-notifier/updates-available`, entretenu par `apt-daily.timer`.
+- Les compteurs (`85 mises à jour`, `14 de sécurité`) viennent de `updates.json`, où `dgx-updates.sh` range la sortie lisible par machine de `/usr/lib/update-notifier/apt-check` (les mêmes chiffres qu'update-notifier). Sans le timer, ils retombent sur `/var/lib/update-notifier/updates-available`, entretenu par `apt-daily.timer` ; ce fichier suit la langue du système et seules ses phrases anglaises sont comprises.
+- Le script lance `apt` avec `LC_ALL=C` : en français, `apt list` écrit `[pouvant être mis à jour depuis : …]` et la liste de paquets sortait vide.
 - La liste par paquet (nom/version actuelle/candidate) vient de `updates.json`, entretenu par `dgx-updates.timer` ci-dessous.
 - L'installation des mises à jour se fait toujours via le DGX Dashboard ou `apt` sur l'hôte — pas depuis cette console.
 
